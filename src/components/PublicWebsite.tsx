@@ -890,7 +890,9 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
 
                 for (const roleKey of leadershipOrder) {
                   const seq = ROLE_SEQUENCE_NUMBER[roleKey] || 9;
-                  const holders = activeTeam.filter((m) => m.role === roleKey);
+                  const holders = activeTeam.filter(
+                    (m) => String(m.role || '').toUpperCase() === String(roleKey).toUpperCase()
+                  );
                   if (holders.length > 0) {
                     for (const h of holders) {
                       displayItems.push({
@@ -900,7 +902,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
                         member: h,
                       });
                     }
-                  } else if (FIRST_PAGE_CORE_ROLES.includes(roleKey)) {
+                  } else {
                     displayItems.push({
                       type: 'VACANT',
                       role: roleKey,
@@ -913,8 +915,8 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
                 // Always list Members last (#9)
                 const memberHolders = activeTeam.filter(
                   (m) =>
-                    m.role === 'MEMBER' ||
-                    !leadershipOrder.includes(m.role as UserRole)
+                    String(m.role || '').toUpperCase() === 'MEMBER' ||
+                    !leadershipOrder.includes(String(m.role || '').toUpperCase() as UserRole)
                 );
                 for (const m of memberHolders) {
                   displayItems.push({
