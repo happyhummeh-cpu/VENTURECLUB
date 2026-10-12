@@ -137,3 +137,28 @@ export const logout = async () => {
     sessionStorage.removeItem('tvc_google_access_token');
   } catch {}
 };
+
+export const verifyAuthPersistence = () => {
+  console.log('--- Auth Persistence Diagnostics ---');
+  
+  // 1. Check Firebase Auth State
+  console.log('Firebase Auth User:', auth.currentUser ? auth.currentUser.uid : 'No user logged in');
+  
+  // 2. Check Custom Session Token
+  try {
+    const customToken = localStorage.getItem('tvc_session_token');
+    console.log('Custom Session Token present:', !!customToken);
+  } catch (err) {
+    console.error('Error checking localStorage for custom token:', err);
+  }
+
+  // 3. Check Google Access Token
+  try {
+    const googleToken = sessionStorage.getItem('tvc_google_access_token');
+    console.log('Google Access Token present:', !!googleToken);
+  } catch (err) {
+    console.error('Error checking sessionStorage for Google token:', err);
+  }
+
+  console.log('------------------------------------');
+};

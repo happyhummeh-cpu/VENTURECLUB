@@ -5,6 +5,7 @@ import {
   logout,
   getIdToken,
   getAccessToken,
+  auth,
 } from './lib/firebase.ts';
 import { PublicWebsite } from './components/PublicWebsite.tsx';
 import { ErpCommandCenter } from './components/ErpCommandCenter.tsx';
@@ -205,10 +206,8 @@ export default function App() {
   const [isGoogleAuthenticated, setIsGoogleAuthenticated] = useState(false);
   const [erpData, setErpData] = useState<ErpBootstrapPayload | null>(() => {
     try {
-      if (localStorage.getItem('tvc_session_token')) {
-        const cached = sessionStorage.getItem('tvc_erp_bootstrap_cache');
-        if (cached) return JSON.parse(cached);
-      }
+      const cached = sessionStorage.getItem('tvc_erp_bootstrap_cache');
+      if (cached) return JSON.parse(cached);
     } catch {
       // ignore storage errors
     }
@@ -249,15 +248,21 @@ export default function App() {
         headers,
       });
 
-      // Automatically clear expired custom session token in localStorage
-      if ((res.status === 401 || res.status === 403) && customSessionToken) {
-        localStorage.removeItem('tvc_session_token');
-        localStorage.removeItem('tvc_session_user');
+      // Automatically clear expired sessions
+      if ((res.status === 401 || res.status === 403)) {
+        if (customSessionToken) {
+          localStorage.removeItem('tvc_session_token');
+          localStorage.removeItem('tvc_session_user');
+          setCustomSessionToken(null);
+        }
         sessionStorage.removeItem('tvc_erp_bootstrap_cache');
-        setCustomSessionToken(null);
         setErpData(null);
         setSurface('public');
         setAuthModalOpen(true);
+        
+        if (isGoogleAuthenticated) {
+            await logout();
+        }
         throw new Error('Your session has expired. Please sign in again.');
       }
 
@@ -321,6 +326,11 @@ export default function App() {
   }, [fetchPublicOverview]);
 
   useEffect(() => {
+    // Check initial auth state
+    if (auth.currentUser) {
+        setIsGoogleAuthenticated(true);
+    }
+
     const unsubscribe = initAuth(
       () => {
         setIsGoogleAuthenticated(true);
