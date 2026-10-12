@@ -31,6 +31,7 @@ import {
   Square,
   CalendarDays,
   Info,
+  Menu,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TvcLogo } from './TvcLogo.tsx';
@@ -139,6 +140,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
 
   // Notification Popover
   const [notifOpen, setNotifOpen] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const unreadNotifications = data.notifications.filter((n) => !n.isRead);
 
   // ===============================================================
@@ -1427,11 +1429,143 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
         </div>
       </aside>
 
+      {/* MOBILE SIDEBAR DRAWER OVERLAY */}
+      <AnimatePresence>
+        {mobileSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs lg:hidden flex"
+            onClick={() => setMobileSidebarOpen(false)}
+          >
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="w-72 bg-white h-full shadow-2xl flex flex-col justify-between"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div>
+                <div className="h-16 px-5 border-b border-zinc-200 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <TvcLogo size="sm" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold font-sans text-zinc-950 truncate leading-tight">
+                        The Venture Club
+                      </div>
+                      <div className="text-[10px] font-mono text-zinc-400 truncate">
+                        erp.theventureclub.in
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setMobileSidebarOpen(false)}
+                    className="p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-3.5">
+                  <button
+                    onClick={() => {
+                      setMobileSidebarOpen(false);
+                      onOpenCommandPalette();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs text-zinc-500 bg-zinc-100/80 hover:bg-zinc-200/70 border border-zinc-200/80 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Search className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>Quick search...</span>
+                    </span>
+                    <kbd className="text-[10px] font-mono text-zinc-400 bg-white px-1.5 py-0.5 rounded border border-zinc-200">
+                      ⌘K
+                    </kbd>
+                  </button>
+                </div>
+
+                <nav className="px-3 space-y-1">
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeSection === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          onChangeSection(item.id);
+                          setMobileSidebarOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer ${
+                          isActive
+                            ? 'bg-zinc-950 text-white shadow-2xs'
+                            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950'
+                        }`}
+                      >
+                        <span className="inline-flex items-center gap-2.5">
+                          <Icon className="w-4 h-4 shrink-0" />
+                          <span>{item.label}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
+
+              <div className="p-3.5 border-t border-zinc-200 space-y-3">
+                <button
+                  onClick={() => {
+                    setMobileSidebarOpen(false);
+                    onSwitchToPublic();
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200/70 rounded-lg transition-colors cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Public Website</span>
+                  </span>
+                  <ExternalLink className="w-3 h-3 text-zinc-400" />
+                </button>
+
+                <div className="pt-2 border-t border-zinc-100 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-zinc-900 truncate">
+                      {currentUser.fullName}
+                    </div>
+                    <div className="text-[10px] font-mono text-zinc-500 truncate">
+                      {ROLE_LABELS[currentUser.role] || currentUser.role}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onChangeSection('admin');
+                      setAdminSubTab('profile');
+                      setMobileSidebarOpen(false);
+                    }}
+                    className="text-[11px] font-medium text-zinc-600 hover:text-zinc-950 underline shrink-0 cursor-pointer"
+                  >
+                    Profile
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* MAIN CONTENT VIEWPORT */}
       <div className="flex-1 lg:pl-64 flex flex-col min-h-screen pb-16 lg:pb-0">
-        {/* TOP WORKSPACE HEADER (Preview switcher removed as requested) */}
+        {/* TOP WORKSPACE HEADER */}
         <header className="sticky top-0 z-20 h-16 bg-white/90 backdrop-blur-md border-b border-zinc-200 px-4 sm:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="lg:hidden p-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 cursor-pointer shrink-0"
+              aria-label="Open mobile navigation"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
             <div className="lg:hidden">
               <TvcLogo size="xs" />
             </div>
