@@ -162,6 +162,144 @@ const TEAM_FRAME_SLOTS = [
   },
 ];
 
+const DEFAULT_FALLBACK_TEAM = [
+  {
+    id: 10,
+    fullName: 'Anish Anand',
+    email: 'info@anandhishtech.com',
+    role: 'PRESIDENT',
+    avatarUrl: null,
+    clubPosition: 'President',
+    branch: 'Computer Science & Engineering',
+    year: 4,
+    skills: '["Product Strategy","Venture Architecture","Leadership"]',
+    bio: 'Leading club strategy, corporate partnerships, and student entrepreneurship initiatives.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 6,
+    fullName: 'Ananya Rao',
+    email: 'ananya.rao@theventureclub.in',
+    role: 'VICE_PRESIDENT',
+    avatarUrl: null,
+    clubPosition: 'Vice President',
+    branch: 'Electronics & Communication',
+    year: 3,
+    skills: '["Operations","Growth","Ecosystem"]',
+    bio: 'Overseeing pod operations, incubation cohorts, and external relations.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 7,
+    fullName: 'Dev Patel',
+    email: 'dev.patel@theventureclub.in',
+    role: 'SECRETARY',
+    avatarUrl: null,
+    clubPosition: 'Secretary',
+    branch: 'Information Technology',
+    year: 3,
+    skills: '["Documentation","Governance","Logistics"]',
+    bio: 'Managing official records, communications, and startup help desk triage.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 1,
+    fullName: 'Arjun Mehta',
+    email: 'arjun.mehta@theventureclub.in',
+    role: 'SUPER_ADMIN',
+    avatarUrl: null,
+    clubPosition: 'Super Admin & Founding Partner',
+    branch: 'Computer Science & Engineering',
+    year: 4,
+    skills: '["Venture Architecture","Systems Engineering","Seed Fundraising"]',
+    bio: 'Building autonomous logistics infrastructure and leading The Venture Club investment committee.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 2,
+    fullName: 'Maya Lin',
+    email: 'maya.lin@theventureclub.in',
+    role: 'ADMIN',
+    avatarUrl: null,
+    clubPosition: 'Admin & Operations Director',
+    branch: 'Artificial Intelligence & Data Science',
+    year: 3,
+    skills: '["Database Architecture","Security","ERP Operations"]',
+    bio: 'Managing ERP infrastructure, RBAC governance, and platform reliability.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 4,
+    fullName: 'Elena Rostova',
+    email: 'elena.rostova@theventureclub.in',
+    role: 'PROJECT_LEAD',
+    avatarUrl: null,
+    clubPosition: 'Project Lead',
+    branch: 'Computer Science & Engineering',
+    year: 3,
+    skills: '["Full-Stack Engineering","React","TypeScript","Node.js"]',
+    bio: 'Leading venture pod engineering, Kanban sprint execution, and technical architecture.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 3,
+    fullName: 'Rohan Kapoor',
+    email: 'rohan.kapoor@theventureclub.in',
+    role: 'ATTENDANCE_HEAD',
+    avatarUrl: null,
+    clubPosition: 'Attendance Head',
+    branch: 'Mechanical Engineering',
+    year: 3,
+    skills: '["Live Cryptographic Attendance","Google Sheets Sync","Auditing"]',
+    bio: 'Managing club roll-call stations, shooting attendance sessions, and attendance reports.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 8,
+    fullName: 'Dhruv Makkar',
+    email: 'dhruv_makkar@gmail.com',
+    role: 'MEDIA_HEAD',
+    avatarUrl: null,
+    clubPosition: 'Media Head',
+    branch: 'Electrical Engineering',
+    year: 3,
+    skills: '["Media Production","Event Coverage","Brand Strategy"]',
+    bio: 'Directing media coverage, event showcases, and club brand identity.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 5,
+    fullName: 'Kabir Sharma',
+    email: 'kabir.sharma@theventureclub.in',
+    role: 'MEMBER',
+    avatarUrl: null,
+    clubPosition: 'Venture Fellow',
+    branch: 'Computer Science & Engineering',
+    year: 2,
+    skills: '["App Development","UI Design","Rapid Prototyping"]',
+    bio: 'Builder and contributor across venture pods and hackathon projects.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+];
+
 export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
   gallery,
   team,
@@ -170,6 +308,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
   onRefreshPublic,
   onOpenAuthModal,
 }) => {
+  const activeTeam = team && team.length > 0 ? team : DEFAULT_FALLBACK_TEAM;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [lightboxItem, setLightboxItem] = useState<{
     title: string;
@@ -720,17 +859,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
             </p>
           </div>
 
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-10 sm:mt-12">
-              {[1, 2, 3, 4].map((n) => (
-                <div
-                  key={n}
-                  className="h-56 rounded-2xl bg-zinc-200/60 animate-pulse border border-zinc-200"
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6 mt-10 sm:mt-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6 mt-10 sm:mt-12">
               {(() => {
                 // Sequence: 1. President, 2. Vice President, 3. Secretary, 4. Super Admin, 5. Admin, 6. Project Lead, 7. Attendance Head, 8. Media Head, 9. Member
                 const displayItems: Array<
@@ -761,7 +890,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
 
                 for (const roleKey of leadershipOrder) {
                   const seq = ROLE_SEQUENCE_NUMBER[roleKey] || 9;
-                  const holders = team.filter((m) => m.role === roleKey);
+                  const holders = activeTeam.filter((m) => m.role === roleKey);
                   if (holders.length > 0) {
                     for (const h of holders) {
                       displayItems.push({
@@ -782,7 +911,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
                 }
 
                 // Always list Members last (#9)
-                const memberHolders = team.filter(
+                const memberHolders = activeTeam.filter(
                   (m) =>
                     m.role === 'MEMBER' ||
                     !leadershipOrder.includes(m.role as UserRole)
@@ -907,7 +1036,6 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
                 });
               })()}
             </div>
-          )}
         </div>
       </section>
 

@@ -18,6 +18,144 @@ import type {
   MemberDirectoryItem,
 } from './types.ts';
 
+const DEFAULT_TEAM = [
+  {
+    id: 10,
+    fullName: 'Anish Anand',
+    email: 'info@anandhishtech.com',
+    role: 'PRESIDENT',
+    avatarUrl: null,
+    clubPosition: 'President',
+    branch: 'Computer Science & Engineering',
+    year: 4,
+    skills: '["Product Strategy","Venture Architecture","Leadership"]',
+    bio: 'Leading club strategy, corporate partnerships, and student entrepreneurship initiatives.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 6,
+    fullName: 'Ananya Rao',
+    email: 'ananya.rao@theventureclub.in',
+    role: 'VICE_PRESIDENT',
+    avatarUrl: null,
+    clubPosition: 'Vice President',
+    branch: 'Electronics & Communication',
+    year: 3,
+    skills: '["Operations","Growth","Ecosystem"]',
+    bio: 'Overseeing pod operations, incubation cohorts, and external relations.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 7,
+    fullName: 'Dev Patel',
+    email: 'dev.patel@theventureclub.in',
+    role: 'SECRETARY',
+    avatarUrl: null,
+    clubPosition: 'Secretary',
+    branch: 'Information Technology',
+    year: 3,
+    skills: '["Documentation","Governance","Logistics"]',
+    bio: 'Managing official records, communications, and startup help desk triage.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 1,
+    fullName: 'Arjun Mehta',
+    email: 'arjun.mehta@theventureclub.in',
+    role: 'SUPER_ADMIN',
+    avatarUrl: null,
+    clubPosition: 'Super Admin & Founding Partner',
+    branch: 'Computer Science & Engineering',
+    year: 4,
+    skills: '["Venture Architecture","Systems Engineering","Seed Fundraising"]',
+    bio: 'Building autonomous logistics infrastructure and leading The Venture Club investment committee.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 2,
+    fullName: 'Maya Lin',
+    email: 'maya.lin@theventureclub.in',
+    role: 'ADMIN',
+    avatarUrl: null,
+    clubPosition: 'Admin & Operations Director',
+    branch: 'Artificial Intelligence & Data Science',
+    year: 3,
+    skills: '["Database Architecture","Security","ERP Operations"]',
+    bio: 'Managing ERP infrastructure, RBAC governance, and platform reliability.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 4,
+    fullName: 'Elena Rostova',
+    email: 'elena.rostova@theventureclub.in',
+    role: 'PROJECT_LEAD',
+    avatarUrl: null,
+    clubPosition: 'Project Lead',
+    branch: 'Computer Science & Engineering',
+    year: 3,
+    skills: '["Full-Stack Engineering","React","TypeScript","Node.js"]',
+    bio: 'Leading venture pod engineering, Kanban sprint execution, and technical architecture.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 3,
+    fullName: 'Rohan Kapoor',
+    email: 'rohan.kapoor@theventureclub.in',
+    role: 'ATTENDANCE_HEAD',
+    avatarUrl: null,
+    clubPosition: 'Attendance Head',
+    branch: 'Mechanical Engineering',
+    year: 3,
+    skills: '["Live Cryptographic Attendance","Google Sheets Sync","Auditing"]',
+    bio: 'Managing club roll-call stations, shooting attendance sessions, and attendance reports.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 8,
+    fullName: 'Dhruv Makkar',
+    email: 'dhruv_makkar@gmail.com',
+    role: 'MEDIA_HEAD',
+    avatarUrl: null,
+    clubPosition: 'Media Head',
+    branch: 'Electrical Engineering',
+    year: 3,
+    skills: '["Media Production","Event Coverage","Brand Strategy"]',
+    bio: 'Directing media coverage, event showcases, and club brand identity.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+  {
+    id: 5,
+    fullName: 'Kabir Sharma',
+    email: 'kabir.sharma@theventureclub.in',
+    role: 'MEMBER',
+    avatarUrl: null,
+    clubPosition: 'Venture Fellow',
+    branch: 'Computer Science & Engineering',
+    year: 2,
+    skills: '["App Development","UI Design","Rapid Prototyping"]',
+    bio: 'Builder and contributor across venture pods and hackathon projects.',
+    status: 'ACTIVE',
+    linkedinUrl: null,
+    githubUrl: null,
+  },
+];
+
 export default function App() {
   // Surface mode: 'public' (theventureclub.in) or 'erp' (erp.theventureclub.in)
   const [surface, setSurface] = useState<'public' | 'erp'>('public');
@@ -39,7 +177,12 @@ export default function App() {
   }>(() => {
     try {
       const cached = sessionStorage.getItem('tvc_public_overview_cache');
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.team) && parsed.team.length > 0) {
+          return parsed;
+        }
+      }
     } catch {
       // ignore storage errors
     }
@@ -47,7 +190,7 @@ export default function App() {
       events: [],
       projects: [],
       gallery: [],
-      team: [],
+      team: DEFAULT_TEAM,
     };
   });
   const [loadingPublic, setLoadingPublic] = useState<boolean>(() => {
@@ -132,15 +275,28 @@ export default function App() {
       const res = await fetch('/api/public/overview');
       if (res.ok) {
         const json = await res.json();
-        setPublicData(json);
+        const merged = {
+          ...json,
+          team: json.team && json.team.length > 0 ? json.team : DEFAULT_TEAM,
+        };
+        setPublicData(merged);
         try {
-          sessionStorage.setItem('tvc_public_overview_cache', JSON.stringify(json));
+          sessionStorage.setItem('tvc_public_overview_cache', JSON.stringify(merged));
         } catch {
           // ignore storage quota errors
         }
+      } else {
+        setPublicData((prev) => ({
+          ...prev,
+          team: prev.team.length > 0 ? prev.team : DEFAULT_TEAM,
+        }));
       }
     } catch (err) {
       console.error('Error loading public overview:', err);
+      setPublicData((prev) => ({
+        ...prev,
+        team: prev.team.length > 0 ? prev.team : DEFAULT_TEAM,
+      }));
     } finally {
       setLoadingPublic(false);
     }
