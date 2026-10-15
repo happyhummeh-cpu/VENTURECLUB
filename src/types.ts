@@ -122,7 +122,7 @@ export interface AttendanceSession {
   id: number;
   eventId: number;
   code: string;
-  sessionType: 'MEETING' | 'SHOOTING';
+  sessionType: 'MEETING' | 'SHOOTING' | 'COMBINED';
   sessionDate: string;
   startTime: string;
   durationMinutes: number;
@@ -139,7 +139,7 @@ export interface AttendanceRecordItem {
   sessionId: number | null;
   userId: number;
   attendanceDate: string;
-  sessionType: 'MEETING' | 'SHOOTING';
+  sessionType: 'MEETING' | 'SHOOTING' | 'COMBINED';
   status: AttendanceStatus;
   method: 'CODE' | 'MANUAL_OVERRIDE' | 'SESSION';
   markedByUid: string | null;

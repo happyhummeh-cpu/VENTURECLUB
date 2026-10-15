@@ -726,14 +726,18 @@ export async function markRosterAttendance(
   googleAccessToken?: string,
   options?: {
     attendanceDate?: string;
-    sessionType?: 'MEETING' | 'SHOOTING';
+    sessionType?: 'MEETING' | 'SHOOTING' | 'COMBINED';
   }
 ) {
   try {
     const targetDate =
       options?.attendanceDate?.trim() || new Date().toISOString().split('T')[0];
     const targetSessionType =
-      options?.sessionType === 'SHOOTING' ? 'SHOOTING' : 'MEETING';
+      options?.sessionType === 'SHOOTING'
+        ? 'SHOOTING'
+        : options?.sessionType === 'COMBINED'
+        ? 'COMBINED'
+        : 'MEETING';
 
     // 1. Fetch all existing records for this date & sessionType in ONE query
     const existingRows = await db
@@ -1457,19 +1461,28 @@ export async function startAttendanceSessionForEvent(
   ttlMinutes: number,
   actor: AuthenticatedUserRecord,
   options?: {
-    sessionType?: 'MEETING' | 'SHOOTING';
+    sessionType?: 'MEETING' | 'SHOOTING' | 'COMBINED';
     sessionDate?: string;
     startTime?: string;
     title?: string;
   }
 ) {
   try {
-    const sType = options?.sessionType === 'SHOOTING' ? 'SHOOTING' : 'MEETING';
+    const sType =
+      options?.sessionType === 'SHOOTING'
+        ? 'SHOOTING'
+        : options?.sessionType === 'COMBINED'
+        ? 'COMBINED'
+        : 'MEETING';
     const sDate = options?.sessionDate?.trim() || new Date().toISOString().split('T')[0];
     const sTime = options?.startTime?.trim() || (sType === 'SHOOTING' ? '11:00' : new Date().toTimeString().slice(0, 5));
     const sTitle =
       options?.title?.trim() ||
-      (sType === 'SHOOTING' ? 'Shooting Attendance Session' : 'Shooting & Club Meetings');
+      (sType === 'SHOOTING'
+        ? 'Shooting Attendance Session'
+        : sType === 'COMBINED'
+        ? 'Shooting & Club Meeting Session'
+        : 'Club Meeting Attendance Session');
     const duration = Math.max(1, ttlMinutes || 15);
 
     await db

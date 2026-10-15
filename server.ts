@@ -466,7 +466,12 @@ async function startServer() {
           duration,
           req.dbUser!,
           {
-            sessionType: sessionType === 'SHOOTING' ? 'SHOOTING' : 'MEETING',
+            sessionType:
+              sessionType === 'SHOOTING'
+                ? 'SHOOTING'
+                : sessionType === 'COMBINED'
+                ? 'COMBINED'
+                : 'MEETING',
             sessionDate,
             startTime,
             title,
@@ -530,7 +535,12 @@ async function startServer() {
           req.googleAccessToken,
           {
             attendanceDate,
-            sessionType: sessionType === 'SHOOTING' ? 'SHOOTING' : 'MEETING',
+            sessionType:
+              sessionType === 'SHOOTING'
+                ? 'SHOOTING'
+                : sessionType === 'COMBINED'
+                ? 'COMBINED'
+                : 'MEETING',
           }
         );
 

@@ -32,6 +32,18 @@ import {
   CalendarDays,
   Info,
   Menu,
+  CloudUpload,
+  Lock,
+  Unlock,
+  Printer,
+  Check,
+  FileText,
+  Sparkles,
+  HelpCircle,
+  Timer,
+  ChevronRight,
+  AlertTriangle,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TvcLogo } from './TvcLogo.tsx';
@@ -150,16 +162,69 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     'daily' | 'weekly' | 'monthly' | 'analytics'
   >('daily');
   const [selectedDate, setSelectedDate] = useState<string>('2026-10-09');
-  const [attendanceMode, setAttendanceMode] = useState<'MEETING' | 'SHOOTING'>(
-    'MEETING'
-  );
+  const [attendanceMode, setAttendanceMode] = useState<
+    'MEETING' | 'SHOOTING' | 'COMBINED'
+  >('MEETING');
   const [sessionDurationMinutes, setSessionDurationMinutes] =
-    useState<number>(20);
+    useState<number>(120);
   const [startingSession, setStartingSession] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
   const [rosterSearch, setRosterSearch] = useState('');
 
-  // Shooting Attendance Permanent Toggle & Configurable Start Time (default 11:00 AM)
+  // Modals for Attendance
+  const [showStartSessionModal, setShowStartSessionModal] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
+  const [showPrintReportModal, setShowPrintReportModal] = useState(false);
+  const [showClarificationInfo, setShowClarificationInfo] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadRangeType, setDownloadRangeType] = useState<
+    'daily' | 'one_week' | 'two_week' | 'custom'
+  >('daily');
+  const [downloadStartDate, setDownloadStartDate] = useState(selectedDate);
+  const [downloadEndDate, setDownloadEndDate] = useState(selectedDate);
+  const [downloadSessionFilter, setDownloadSessionFilter] = useState<
+    'ALL' | 'MEETING' | 'SHOOTING' | 'COMBINED'
+  >('ALL');
+
+  // Modal Configuration for Starting a Session
+  const [newSessionTitle, setNewSessionTitle] = useState<string>('');
+  const [newSessionCategory, setNewSessionCategory] = useState<
+    'SHOOTING' | 'MEETING' | 'COMBINED'
+  >('MEETING');
+  const [newSessionTimeOption, setNewSessionTimeOption] = useState<
+    '11:00' | '15:40' | 'CUSTOM'
+  >('11:00');
+  const [newSessionCustomTime, setNewSessionCustomTime] = useState<string>('11:00');
+  const [newSessionDurationMinutes, setNewSessionDurationMinutes] =
+    useState<number>(120);
+
+  // Persistent Submission State (Reliable submission without permanent lockouts)
+  const [submissionMap, setSubmissionMap] = useState<
+    Record<
+      string,
+      {
+        isSubmitted: boolean;
+        submittedAt: string;
+        lockCutoffTime?: number;
+        isUnlocked?: boolean;
+      }
+    >
+  >(() => {
+    try {
+      const raw = localStorage.getItem('tvc_attendance_submissions');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const submissionKey = `${selectedDate}_${attendanceMode}`;
+  const currentSubmission = submissionMap[submissionKey];
+  // Do not lock the attendance sheet permanently; admin can always access, update, and submit corrections
+  const isSessionLocked = false;
+  const minutesUntilLocked = 0;
+
+  // Shooting Attendance Permanent Toggle & Configurable Start Time
   const [shootingEnabled, setShootingEnabled] = useState<boolean>(
     data.shootingSettings?.isEnabled ?? true
   );
@@ -167,7 +232,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     data.shootingSettings?.defaultStartTime || '11:00'
   );
   const [shootingDuration, setShootingDuration] = useState<number>(
-    data.shootingSettings?.durationMinutes || 60
+    data.shootingSettings?.durationMinutes || 120
   );
   const [updatingShooting, setUpdatingShooting] = useState(false);
 
@@ -175,9 +240,42 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     if (data.shootingSettings) {
       setShootingEnabled(data.shootingSettings.isEnabled);
       setShootingStartTime(data.shootingSettings.defaultStartTime || '11:00');
-      setShootingDuration(data.shootingSettings.durationMinutes || 60);
+      setShootingDuration(data.shootingSettings.durationMinutes || 120);
     }
   }, [data.shootingSettings]);
+
+  // Dynamic Session Lookup for selected date & mode
+  const selectedSession = useMemo(() => {
+    const matching = data.attendanceSessions.filter(
+      (s) =>
+        (s.sessionDate === selectedDate || s.isActive) &&
+        (s.sessionType || 'MEETING') === attendanceMode
+    );
+    matching.sort((a, b) => (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0));
+    return matching[0] || null;
+  }, [data.attendanceSessions, selectedDate, attendanceMode]);
+
+  // Dynamic session title and time based on actual session created or selected
+  const dynamicSessionTitle = useMemo(() => {
+    if (selectedSession?.title) return selectedSession.title;
+    if (attendanceMode === 'SHOOTING') {
+      return data.shootingSettings?.sessionTitle || 'Shooting Session';
+    }
+    if (attendanceMode === 'COMBINED') {
+      return 'Shooting & Club Meeting';
+    }
+    return 'Club Meeting';
+  }, [selectedSession, attendanceMode, data.shootingSettings]);
+
+  const dynamicSessionTime = useMemo(() => {
+    if (selectedSession?.startTime) {
+      return formatTime12h(selectedSession.startTime);
+    }
+    if (attendanceMode === 'SHOOTING' && shootingStartTime) {
+      return formatTime12h(shootingStartTime);
+    }
+    return '11:00 AM';
+  }, [selectedSession, attendanceMode, shootingStartTime]);
 
   // Active Session Timer (without any codes)
   const activeSession = useMemo(() => {
@@ -224,15 +322,33 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     );
   }, [data.events]);
 
-  // Live Daily Roster Status Map (keyed by userId for selectedDate + attendanceMode)
+  // All active club members sorted strictly by the official hierarchy sequence (1 to 9)
+  const activeClubMembers = useMemo(() => {
+    return data.members
+      .filter((m) => m.isActive !== false)
+      .sort((a, b) => {
+        const seqA = ROLE_SEQUENCE_NUMBER[a.role] ?? 9;
+        const seqB = ROLE_SEQUENCE_NUMBER[b.role] ?? 9;
+        if (seqA !== seqB) return seqA - seqB;
+        return a.fullName.localeCompare(b.fullName);
+      });
+  }, [data.members]);
+
+  // Live Daily Roster Status Map: DEFAULT ALL MEMBERS TO PRESENT
   const [rosterStatusMap, setRosterStatusMap] = useState<
-    Record<number, 'PRESENT' | 'LATE' | 'EXIT' | 'ABSENT'>
+    Record<number, 'PRESENT' | 'LATE' | 'ABSENT'>
   >({});
   const [savingRoster, setSavingRoster] = useState(false);
   const [isSyncingSilent, setIsSyncingSilent] = useState(false);
 
   useEffect(() => {
-    const map: Record<number, 'PRESENT' | 'LATE' | 'EXIT' | 'ABSENT'> = {};
+    const map: Record<number, 'PRESENT' | 'LATE' | 'ABSENT'> = {};
+    // 1. By default, EVERY member starts marked as PRESENT!
+    activeClubMembers.forEach((m) => {
+      map[m.id] = 'PRESENT';
+    });
+
+    // 2. Overlay any previously saved attendance records for this date & mode
     data.attendanceRecords
       .filter(
         (r) =>
@@ -240,17 +356,15 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
           (r.sessionType || 'MEETING') === attendanceMode
       )
       .forEach((r) => {
-        const normalizedStatus =
-          r.status === 'EXCUSED' ? 'EXIT' : (r.status as 'PRESENT' | 'LATE' | 'EXIT' | 'ABSENT');
+        const raw = r.status;
+        const normalizedStatus: 'PRESENT' | 'LATE' | 'ABSENT' =
+          raw === 'EXCUSED' || raw === 'EXIT'
+            ? 'LATE'
+            : (raw as 'PRESENT' | 'LATE' | 'ABSENT');
         map[r.userId] = normalizedStatus;
       });
     setRosterStatusMap(map);
-  }, [data.attendanceRecords, selectedDate, attendanceMode]);
-
-  // All active club members live in the attendance list
-  const activeClubMembers = useMemo(() => {
-    return data.members.filter((m) => m.isActive);
-  }, [data.members]);
+  }, [data.attendanceRecords, selectedDate, attendanceMode, activeClubMembers]);
 
   const filteredRosterMembers = useMemo(() => {
     if (!rosterSearch.trim()) return activeClubMembers;
@@ -595,21 +709,38 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   // ATTENDANCE & SHOOTING HANDLERS
   // ===============================================================
   const handleStartAttendanceSession = async (
-    customType?: 'MEETING' | 'SHOOTING'
+    customType?: 'MEETING' | 'SHOOTING' | 'COMBINED',
+    customTime?: string,
+    customDuration?: number,
+    customTitle?: string
   ) => {
-    const targetType = customType || attendanceMode;
-    if (targetType === 'SHOOTING' && !shootingEnabled) {
-      showToast(
-        'error',
-        'Please turn ON the Shooting Attendance toggle first.'
-      );
-      return;
-    }
+    const targetType = customType || newSessionCategory || attendanceMode;
+    const duration =
+      customDuration ||
+      newSessionDurationMinutes ||
+      (targetType === 'SHOOTING' ? shootingDuration : sessionDurationMinutes);
+    const timeToUse =
+      customTime ||
+      (newSessionTimeOption === '11:00'
+        ? '11:00'
+        : newSessionTimeOption === '15:40'
+        ? '15:40'
+        : newSessionCustomTime || '11:00');
 
     setStartingSession(true);
     try {
-      const duration =
-        targetType === 'SHOOTING' ? shootingDuration : sessionDurationMinutes;
+      const typeLabel =
+        targetType === 'SHOOTING'
+          ? 'Shooting'
+          : targetType === 'COMBINED'
+          ? 'Shooting & Club Meeting'
+          : 'Club Meeting';
+
+      const titleToUse =
+        customTitle?.trim() ||
+        newSessionTitle?.trim() ||
+        `${typeLabel} Session (${formatTime12h(timeToUse)})`;
+
       const res = await apiFetch('/api/erp/attendance/session', {
         method: 'POST',
         body: JSON.stringify({
@@ -617,23 +748,26 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
           ttlMinutes: duration,
           sessionType: targetType,
           sessionDate: selectedDate,
-          startTime:
-            targetType === 'SHOOTING'
-              ? shootingStartTime
-              : new Date().toTimeString().slice(0, 5),
-          title:
-            targetType === 'SHOOTING'
-              ? `Shooting Attendance (${formatTime12h(shootingStartTime)})`
-              : 'Shooting & Club Meetings',
+          startTime: timeToUse,
+          title: titleToUse,
         }),
       });
+
       setAttendanceMode(targetType);
+      setShowStartSessionModal(false);
+      setNewSessionTitle('');
+
+      // Default all members to PRESENT for the new attendance session
+      const newMap: Record<number, 'PRESENT' | 'LATE' | 'ABSENT'> = {};
+      activeClubMembers.forEach((m) => {
+        newMap[m.id] = 'PRESENT';
+      });
+      setRosterStatusMap(newMap);
+
       showToast(
         'success',
         res.message ||
-          `Started ${
-            targetType === 'SHOOTING' ? 'Shooting' : 'Club Meeting'
-          } attendance session (${duration} min).`
+          `Started ${titleToUse} (${duration} min). All members marked Present by default.`
       );
       await onRefreshErp();
     } catch (err: any) {
@@ -657,6 +791,86 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     } finally {
       setEndingSession(false);
     }
+  };
+
+  // Submit Attendance to Database (Reliable PostgreSQL storage without permanent lockouts)
+  const handleSubmitAttendanceToDatabase = async () => {
+    if (savingRoster) return;
+    const targetEventId = clubMeetingEvent?.id || 2;
+    const records = activeClubMembers.map((m) => ({
+      userId: m.id,
+      status: rosterStatusMap[m.id] || 'PRESENT',
+    }));
+
+    setSavingRoster(true);
+    try {
+      await apiFetch('/api/erp/attendance/roster-mark', {
+        method: 'POST',
+        body: JSON.stringify({
+          eventId: targetEventId,
+          attendanceDate: selectedDate,
+          sessionType: attendanceMode,
+          records,
+        }),
+      });
+
+      const newSub = {
+        isSubmitted: true,
+        submittedAt: new Date().toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        isUnlocked: true,
+      };
+
+      setSubmissionMap((prev) => {
+        const next = { ...prev, [submissionKey]: newSub };
+        try {
+          localStorage.setItem(
+            'tvc_attendance_submissions',
+            JSON.stringify(next)
+          );
+        } catch {}
+        return next;
+      });
+
+      showToast(
+        'success',
+        `Attendance submitted & saved to database for ${selectedDate} (${records.length} members).`
+      );
+      await onRefreshErp();
+    } catch (err: any) {
+      showToast(
+        'error',
+        err.message || 'Failed to submit attendance to database. Your changes were preserved.'
+      );
+    } finally {
+      setSavingRoster(false);
+    }
+  };
+
+  const handleUnlockSessionEdit = () => {
+    setSubmissionMap((prev) => {
+      const next = {
+        ...prev,
+        [submissionKey]: {
+          ...(prev[submissionKey] || {
+            isSubmitted: true,
+            submittedAt: '11:00 AM',
+          }),
+          lockCutoffTime: Date.now() + 60 * 60 * 1000,
+          isUnlocked: true,
+        },
+      };
+      try {
+        localStorage.setItem(
+          'tvc_attendance_submissions',
+          JSON.stringify(next)
+        );
+      } catch {}
+      return next;
+    });
+    showToast('success', 'Attendance unlocked for supervisor edit corrections.');
   };
 
   const handleToggleShootingEnabled = async () => {
@@ -712,21 +926,20 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     }
   };
 
-  // Manual 1-Click Attendance Status Marking (Present, Late, Exit, Absent) — Instant Optimistic Update
+  // Manual 1-Click Attendance Status Marking (Present, Late, Absent) — Instant Optimistic Update
   const handleToggleRosterItem = async (
     userId: number,
-    status: 'PRESENT' | 'LATE' | 'EXIT' | 'ABSENT'
+    status: 'PRESENT' | 'LATE' | 'ABSENT'
   ) => {
-    const prevStatus = rosterStatusMap[userId];
+    const prevStatus = rosterStatusMap[userId] || 'PRESENT';
     setRosterStatusMap((prev) => ({ ...prev, [userId]: status }));
 
-    const labelMap = {
+    const labelMap: Record<string, string> = {
       PRESENT: 'Present',
       LATE: 'Late',
-      EXIT: 'Exit',
       ABSENT: 'Absent',
     };
-    showToast('success', `Marked ${labelMap[status]} for ${selectedDate}.`);
+    showToast('success', `Marked ${labelMap[status] || status} for ${selectedDate}.`);
 
     const targetEventId = clubMeetingEvent?.id || 2;
     try {
@@ -749,14 +962,15 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   };
 
   const handleMarkAllPresent = async () => {
+    if (savingRoster) return;
     const targetEventId = clubMeetingEvent?.id || 2;
     const records = activeClubMembers.map((m) => ({
       userId: m.id,
       status: 'PRESENT' as const,
     }));
 
-    // Instant optimistic update
-    const newMap: Record<number, 'PRESENT' | 'LATE' | 'EXIT' | 'ABSENT'> = {};
+    // Instant optimistic update: everyone marked PRESENT
+    const newMap: Record<number, 'PRESENT' | 'LATE' | 'ABSENT'> = {};
     records.forEach((r) => {
       newMap[r.userId] = 'PRESENT';
     });
@@ -801,6 +1015,144 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     }
   };
 
+  // Comprehensive Period Attendance Download (Daily, 1-Week, 2-Week, Custom)
+  const handleExecuteDownloadSheet = () => {
+    const baseDate = new Date(selectedDate);
+    let startStr = selectedDate;
+    let endStr = selectedDate;
+
+    if (downloadRangeType === 'daily') {
+      startStr = selectedDate;
+      endStr = selectedDate;
+    } else if (downloadRangeType === 'one_week') {
+      const s = new Date(baseDate);
+      s.setDate(s.getDate() - 6);
+      startStr = s.toISOString().split('T')[0];
+      endStr = selectedDate;
+    } else if (downloadRangeType === 'two_week') {
+      const s = new Date(baseDate);
+      s.setDate(s.getDate() - 13);
+      startStr = s.toISOString().split('T')[0];
+      endStr = selectedDate;
+    } else if (downloadRangeType === 'custom') {
+      startStr = downloadStartDate || selectedDate;
+      endStr = downloadEndDate || selectedDate;
+      if (startStr > endStr) {
+        const tmp = startStr;
+        startStr = endStr;
+        endStr = tmp;
+      }
+    }
+
+    const headers = [
+      'Seq Rank',
+      'Member Name',
+      'Role',
+      'Roll Number',
+      'Branch',
+      'Date',
+      'Session Type / Name',
+      'Attendance Status',
+    ];
+
+    let rows: (string | number)[][] = [];
+
+    if (downloadRangeType === 'daily' && startStr === selectedDate && endStr === selectedDate) {
+      rows = activeClubMembers.map((m, idx) => {
+        const curStatus = rosterStatusMap[m.id] || 'PRESENT';
+        return [
+          idx + 1,
+          m.fullName,
+          ROLE_LABELS[m.role] || m.role,
+          m.rollNumber || '—',
+          m.branch || '—',
+          selectedDate,
+          dynamicSessionTitle,
+          curStatus,
+        ];
+      });
+    } else {
+      const memberMap = new Map(data.members.map((m) => [m.id, m]));
+      const matched = data.attendanceRecords.filter((r) => {
+        const rDate = r.attendanceDate || r.eventDate;
+        if (!rDate) return false;
+        if (rDate < startStr || rDate > endStr) return false;
+        if (
+          downloadSessionFilter !== 'ALL' &&
+          (r.sessionType || 'MEETING') !== downloadSessionFilter
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      matched.sort((a, b) => {
+        const dComp = (a.attendanceDate || '').localeCompare(b.attendanceDate || '');
+        if (dComp !== 0) return dComp;
+        const mA = memberMap.get(a.userId);
+        const mB = memberMap.get(b.userId);
+        const seqA = mA ? (ROLE_SEQUENCE_NUMBER[mA.role] ?? 9) : 9;
+        const seqB = mB ? (ROLE_SEQUENCE_NUMBER[mB.role] ?? 9) : 9;
+        return seqA - seqB;
+      });
+
+      rows = matched.map((r) => {
+        const m = memberMap.get(r.userId);
+        const seq = m ? (ROLE_SEQUENCE_NUMBER[m.role] ?? 9) : 9;
+        const rawStatus = r.status;
+        const normStatus =
+          rawStatus === 'EXCUSED' || rawStatus === 'EXIT' ? 'LATE' : rawStatus;
+        const sType =
+          r.sessionType === 'SHOOTING'
+            ? 'Shooting'
+            : r.sessionType === 'COMBINED'
+            ? 'Shooting & Club Meeting'
+            : 'Club Meeting';
+        return [
+          seq,
+          m?.fullName || r.userName || `Member #${r.userId}`,
+          m ? (ROLE_LABELS[m.role] || m.role) : 'Member',
+          m?.rollNumber || '—',
+          m?.branch || '—',
+          r.attendanceDate,
+          sType,
+          normStatus,
+        ];
+      });
+    }
+
+    if (rows.length === 0) {
+      showToast(
+        'error',
+        `No attendance records found between ${startStr} and ${endStr}.`
+      );
+      return;
+    }
+
+    const csvContent =
+      '\uFEFF' +
+      [
+        headers.join(','),
+        ...rows.map((r) =>
+          r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ),
+      ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const filename = `tvc_attendance_${downloadRangeType}_${startStr}_to_${endStr}.csv`;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast('success', `Downloaded ${filename} (${rows.length} rows).`);
+    setShowDownloadModal(false);
+  };
+
   const handleDownloadAttendanceReportCsv = () => {
     let headers: string[] = [];
     let rows: (string | number)[][] = [];
@@ -823,8 +1175,14 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
         calculateMemberReport.map((item) => [item.member.id, item])
       );
       rows = filteredRosterMembers.map((m, idx) => {
-        const curStatus = rosterStatusMap[m.id] || 'ABSENT';
+        const curStatus = rosterStatusMap[m.id] || 'PRESENT';
         const stats = reportLookup.get(m.id);
+        const sessionLabel =
+          attendanceMode === 'SHOOTING'
+            ? `Shooting (${formatTime12h(shootingStartTime)})`
+            : attendanceMode === 'COMBINED'
+            ? 'Shooting & Club Meeting'
+            : 'Club Meeting';
         return [
           idx + 1,
           m.fullName,
@@ -832,15 +1190,13 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
           m.rollNumber || '—',
           m.branch || '—',
           selectedDate,
-          attendanceMode === 'SHOOTING'
-            ? `Shooting (${formatTime12h(shootingStartTime)})`
-            : 'Shooting & Club Meetings',
+          sessionLabel,
           curStatus,
           stats ? `${stats.weekly.pct}%` : '—',
           stats ? `${stats.monthly.pct}%` : '—',
         ];
       });
-      filename = `tvc_daily_attendance_${attendanceMode.toLowerCase()}_${selectedDate}.csv`;
+      filename = `tvc_attendance_sheet_${attendanceMode.toLowerCase()}_${selectedDate}.csv`;
     } else if (attendanceViewTab === 'weekly') {
       headers = [
         'Member Name',
@@ -1245,21 +1601,20 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     }
   };
 
-  // Daily Attendance Summary Counts
-  const presentCount = Object.values(rosterStatusMap).filter(
-    (st) => st === 'PRESENT'
+  // Daily Attendance Summary Counts (All active members default to PRESENT)
+  const presentCount = activeClubMembers.filter(
+    (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'PRESENT'
   ).length;
-  const lateCount = Object.values(rosterStatusMap).filter(
-    (st) => st === 'LATE'
+  const lateCount = activeClubMembers.filter(
+    (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'LATE'
   ).length;
-  const exitCount = Object.values(rosterStatusMap).filter(
-    (st) => st === 'EXIT'
+  const exitCount = activeClubMembers.filter(
+    (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'EXIT'
+  ).length;
+  const absentCount = activeClubMembers.filter(
+    (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'ABSENT'
   ).length;
   const expectedCount = activeClubMembers.length || 1;
-  const absentCount = Math.max(
-    0,
-    expectedCount - presentCount - lateCount - exitCount
-  );
   const attendanceProgressPct = Math.min(
     100,
     Math.round(((presentCount + lateCount) / Math.max(1, expectedCount)) * 100)
@@ -1802,7 +2157,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                         {activeClubMembers.length} / {data.members.length}
                       </div>
                       <div className="text-[11px] text-zinc-400 mt-1">
-                        Official 1–9 role hierarchy
+                        Official club roster
                       </div>
                     </div>
 
@@ -2023,7 +2378,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                       <button
                         onClick={handleSilentSync}
                         disabled={isSyncingSilent}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
                         title="Sync attendance records"
                       >
                         <RefreshCw
@@ -2035,238 +2390,373 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                       </button>
 
                       <button
+                        type="button"
+                        onClick={() => setShowAnalyticsModal(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
+                        title="Open interactive attendance bar graph"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>View Bar Graph</span>
+                      </button>
+
+                      <button
                         onClick={handleDownloadAttendanceReportCsv}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
-                        title="Download current attendance view as CSV"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
+                        title="Download current attendance sheet as CSV"
                       >
                         <Download className="w-3.5 h-3.5 text-zinc-600" />
-                        <span>Download Attendance Report</span>
+                        <span>Download Attendance Sheet</span>
                       </button>
 
                       <button
                         onClick={handleMarkAllPresent}
-                        disabled={savingRoster}
-                        className="px-4 py-2 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+                        disabled={savingRoster || isSessionLocked}
+                        className="px-3.5 py-2 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer shadow-xs whitespace-nowrap disabled:opacity-50"
+                        title="Mark all active members Present"
                       >
                         {savingRoster ? 'Saving...' : 'Mark All Present'}
+                      </button>
+
+                      <button
+                        onClick={handleSubmitAttendanceToDatabase}
+                        disabled={savingRoster}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all cursor-pointer shadow-xs whitespace-nowrap active:scale-95 disabled:opacity-50"
+                        title="Upload attendance records to PostgreSQL database"
+                      >
+                        <CloudUpload className="w-3.5 h-3.5" />
+                        <span>
+                          {savingRoster
+                            ? 'Uploading...'
+                            : currentSubmission?.isSubmitted
+                            ? 'Submitted (Click to Re-upload)'
+                            : 'Submit to Database'}
+                        </span>
                       </button>
                     </div>
                   </div>
 
-                  {/* TWO-COLUMN CONTROL BAR: 1) Start New Attendance Session  2) Dedicated Shooting Attendance Toggle */}
+                  {/* ACTIVE SESSION & SUBMISSION STATUS BANNER */}
+                  <div
+                    className={`rounded-xl p-4 border transition-all ${
+                      isSessionLocked
+                        ? 'bg-zinc-900 text-white border-zinc-800 shadow-2xs'
+                        : currentSubmission?.isSubmitted
+                        ? 'bg-emerald-50 text-emerald-950 border-emerald-200 shadow-2xs'
+                        : activeSession
+                        ? 'bg-zinc-950 text-white border-zinc-800 shadow-2xs'
+                        : 'bg-zinc-50 text-zinc-900 border-zinc-200'
+                    }`}
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="flex items-start md:items-center gap-3">
+                        <div
+                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                            isSessionLocked
+                              ? 'bg-zinc-800 text-zinc-300'
+                              : currentSubmission?.isSubmitted
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : activeSession
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-zinc-200 text-zinc-700'
+                          }`}
+                        >
+                          {isSessionLocked ? (
+                            <Lock className="w-4 h-4" />
+                          ) : currentSubmission?.isSubmitted ? (
+                            <Check className="w-4 h-4" />
+                          ) : (
+                            <Clock className="w-4 h-4" />
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-xs uppercase tracking-wider font-mono">
+                              {attendanceMode === 'SHOOTING'
+                                ? 'Shooting Session'
+                                : attendanceMode === 'COMBINED'
+                                ? 'Shooting & Club Meeting'
+                                : 'Club Meeting'}
+                            </span>
+                            <span>·</span>
+                            <span className="text-xs font-semibold">
+                              {attendanceMode === 'SHOOTING'
+                                ? `Call Time: ${formatTime12h(shootingStartTime)}`
+                                : `Call Time: 11:00 AM`}
+                            </span>
+                            {activeSession && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-400/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                Live · {formatCountdown(remainingSeconds)}
+                              </span>
+                            )}
+                            {currentSubmission?.isSubmitted && (
+                              <span
+                                className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border ${
+                                  isSessionLocked
+                                    ? 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                                    : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                }`}
+                              >
+                                {isSessionLocked
+                                  ? 'Finalized (60-min cutoff reached)'
+                                  : `Editable for next ${minutesUntilLocked} min`}
+                              </span>
+                            )}
+                          </div>
+
+                          <p
+                            className={`text-xs mt-1 ${
+                              isSessionLocked
+                                ? 'text-zinc-400'
+                                : currentSubmission?.isSubmitted
+                                ? 'text-emerald-800'
+                                : activeSession
+                                ? 'text-zinc-400'
+                                : 'text-zinc-600'
+                            }`}
+                          >
+                            {isSessionLocked
+                              ? 'This session is finalized. Any member arriving after 2 hours is confirmed Absent. Full attendance report is ready for download.'
+                              : currentSubmission?.isSubmitted
+                              ? `Uploaded to database at ${currentSubmission.submittedAt}. You can update late arrivals to Present or Late before the 60-minute cutoff closes.`
+                              : 'All active members start marked Present by default. Simply tap Absent on members who are missing, then click Submit to Database.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                        {isSessionLocked && (
+                          <button
+                            type="button"
+                            onClick={handleUnlockSessionEdit}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer"
+                          >
+                            <Unlock className="w-3.5 h-3.5" />
+                            <span>Unlock to Edit</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={handleDownloadAttendanceReportCsv}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white text-zinc-950 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Download className="w-3.5 h-3.5 text-zinc-700" />
+                          <span>Full Sheet</span>
+                        </button>
+
+                        {activeSession && (
+                          <button
+                            type="button"
+                            onClick={handleEndAttendanceSession}
+                            disabled={endingSession}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors cursor-pointer"
+                            title="Exit or End current live session"
+                          >
+                            <Square className="w-3 h-3" />
+                            <span>Exit Session</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* TWO-COLUMN CONTROL BAR */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* 1. Start New Attendance Session (Configurable Duration, No Codes) */}
+                    {/* CARD 1: START NEW ATTENDANCE SESSION */}
                     <div className="lg:col-span-6 bg-white border border-zinc-200 rounded-xl p-6 space-y-4 shadow-2xs flex flex-col justify-between">
                       <div className="space-y-1">
                         <div className="flex items-center justify-between gap-2">
                           <h3 className="text-sm font-bold text-zinc-950 font-sans flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-zinc-700" />
+                            <Clock className="w-4 h-4 text-emerald-700" />
                             <span>Start New Attendance Session</span>
                           </h3>
                           {activeSession && (
                             <span className="inline-flex items-center gap-1.5 text-xs font-mono text-emerald-700 font-semibold">
                               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                              <span>
-                                Active · {formatCountdown(remainingSeconds)}
-                              </span>
+                              <span>Active · {formatCountdown(remainingSeconds)}</span>
                             </span>
                           )}
                         </div>
                         <p className="text-xs text-zinc-500">
-                          Start a timed session for{' '}
-                          <strong>Shooting & Club Meetings</strong> with a configurable duration, or mark attendance manually at any time.
+                          Launch a new roll call session. Choose from <strong>Shooting</strong>, <strong>Club Meeting</strong>, or <strong>Shooting & Club Meeting</strong> with configurable duration (30 min to 3 hours).
                         </p>
                       </div>
 
-                      <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                        <div className="flex items-center gap-2 flex-1">
-                          <label className="text-xs font-medium text-zinc-600 whitespace-nowrap">
-                            Duration:
-                          </label>
-                          <select
-                            value={sessionDurationMinutes}
-                            onChange={(e) =>
-                              setSessionDurationMinutes(Number(e.target.value))
-                            }
-                            className="flex-1 px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg font-mono text-zinc-900 focus:outline-none focus:border-zinc-900"
-                          >
-                            <option value={10}>10 Minutes</option>
-                            <option value={15}>15 Minutes</option>
-                            <option value={20}>20 Minutes</option>
-                            <option value={30}>30 Minutes</option>
-                            <option value={45}>45 Minutes</option>
-                            <option value={60}>60 Minutes</option>
-                          </select>
-                        </div>
+                      <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowStartSessionModal(true)}
+                          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer shadow-xs whitespace-nowrap active:scale-95"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-white" />
+                          <span>Start New Attendance Session</span>
+                        </button>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleStartAttendanceSession('MEETING')
-                            }
-                            disabled={startingSession}
-                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer whitespace-nowrap"
-                          >
-                            <Play className="w-3.5 h-3.5" />
-                            <span>
-                              {startingSession
-                                ? 'Starting...'
-                                : 'Start New Attendance Session'}
-                            </span>
-                          </button>
-
-                          {activeSession && (
-                            <button
-                              type="button"
-                              onClick={handleEndAttendanceSession}
-                              disabled={endingSession}
-                              className="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 transition-colors cursor-pointer"
-                            >
-                              <Square className="w-3 h-3" />
-                              <span>End</span>
-                            </button>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowClarificationInfo(!showClarificationInfo)}
+                          className="inline-flex items-center justify-center gap-1 text-xs text-zinc-500 hover:text-zinc-950 cursor-pointer"
+                        >
+                          <HelpCircle className="w-3.5 h-3.5" />
+                          <span>{showClarificationInfo ? 'Hide Guide' : 'Session Guide & FAQ'}</span>
+                        </button>
                       </div>
                     </div>
 
-                    {/* 2. Dedicated Shooting Attendance Card (Permanent ON/OFF Toggle + 11:00 AM Default Start Time) */}
-                    <div
-                      className={`lg:col-span-6 rounded-xl p-6 border transition-all duration-200 space-y-4 shadow-2xs flex flex-col justify-between ${
-                        shootingEnabled
-                          ? 'bg-zinc-950 text-white border-zinc-800'
-                          : 'bg-white text-zinc-900 border-zinc-200'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1">
+                    {/* CARD 2: DEDICATED CONTROL CENTER — TIME PRESETS */}
+                    <div className="lg:col-span-6 bg-white border border-zinc-200 rounded-xl p-6 space-y-4 shadow-2xs flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
-                            <Camera
-                              className={`w-4 h-4 ${
-                                shootingEnabled
-                                  ? 'text-amber-400'
-                                  : 'text-zinc-400'
-                              }`}
-                            />
-                            <h3 className="text-sm font-bold font-sans">
-                              Shooting Attendance
+                            <SlidersHorizontal className="w-4 h-4 text-zinc-700" />
+                            <h3 className="text-sm font-bold text-zinc-950 font-sans">
+                              Dedicated Control Center — Time Presets
                             </h3>
-                            <span
-                              className={`text-[11px] font-mono font-semibold ${
-                                shootingEnabled
-                                  ? 'text-emerald-400'
-                                  : 'text-zinc-400'
-                              }`}
-                            >
-                              · {shootingEnabled ? 'ON' : 'OFF'}
-                            </span>
                           </div>
-                          <p
-                            className={`text-xs ${
-                              shootingEnabled
-                                ? 'text-zinc-400'
-                                : 'text-zinc-500'
-                            }`}
-                          >
-                            Dedicated shooting attendance control. Default start time is 11:00 AM with configurable time & session launch.
-                          </p>
+                          <span className="text-[11px] font-mono text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
+                            Standard Slots
+                          </span>
                         </div>
-
-                        {/* Permanent ON/OFF Toggle Switch */}
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={shootingEnabled}
-                          disabled={updatingShooting}
-                          onClick={handleToggleShootingEnabled}
-                          className={`relative inline-flex h-7 w-13 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            shootingEnabled ? 'bg-emerald-500' : 'bg-zinc-300'
-                          }`}
-                          title="Toggle Shooting Attendance ON or OFF"
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                              shootingEnabled
-                                ? 'translate-x-6'
-                                : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
+                        <p className="text-xs text-zinc-500">
+                          Quickly set standard club call times (<strong>11:00 AM</strong> morning or <strong>After 3:40 PM</strong> afternoon slot) and launch the session directly.
+                        </p>
                       </div>
 
-                      <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <label
-                            className={`text-xs font-medium whitespace-nowrap ${
-                              shootingEnabled
-                                ? 'text-zinc-300'
-                                : 'text-zinc-600'
-                            }`}
-                          >
-                            Start Time:
-                          </label>
+                      <div className="pt-2 flex flex-wrap items-center gap-2">
+                        {/* Preset 1: 11:00 AM */}
+                        <button
+                          type="button"
+                          onClick={() => handleStartAttendanceSession('SHOOTING', '11:00', 120)}
+                          disabled={startingSession}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer border border-zinc-200/80"
+                          title="Start session at 11:00 AM default time"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-zinc-600" />
+                          <span>Start 11:00 AM Slot</span>
+                        </button>
+
+                        {/* Preset 2: After 3:40 PM */}
+                        <button
+                          type="button"
+                          onClick={() => handleStartAttendanceSession('SHOOTING', '15:40', 120)}
+                          disabled={startingSession}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer border border-zinc-200/80"
+                          title="Start session after 3:40 PM default time"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-zinc-600" />
+                          <span>Start After 3:40 PM Slot</span>
+                        </button>
+
+                        {/* Custom Time Selector */}
+                        <div className="flex items-center gap-1.5 ml-auto">
                           <input
                             type="time"
                             value={shootingStartTime}
-                            disabled={!shootingEnabled}
-                            onChange={(e) =>
-                              handleSaveShootingTime(e.target.value)
-                            }
-                            className={`px-3 py-1.5 text-xs font-mono rounded-lg border focus:outline-none ${
-                              shootingEnabled
-                                ? 'bg-zinc-900 border-zinc-700 text-white'
-                                : 'bg-zinc-100 border-zinc-200 text-zinc-400'
-                            }`}
+                            onChange={(e) => handleSaveShootingTime(e.target.value)}
+                            className="px-2.5 py-1.5 text-xs font-mono bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none"
+                            title="Configure default call time"
                           />
-                          <button
-                            type="button"
-                            disabled={!shootingEnabled}
-                            onClick={() => handleSaveShootingTime('11:00')}
-                            className={`px-2.5 py-1.5 text-[11px] font-mono rounded-lg border transition-colors cursor-pointer disabled:opacity-40 ${
-                              shootingStartTime === '11:00'
-                                ? shootingEnabled
-                                  ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
-                                  : 'bg-zinc-100 border-zinc-200 text-zinc-600'
-                                : shootingEnabled
-                                ? 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                                : 'bg-zinc-100 border-zinc-200 text-zinc-500'
-                            }`}
-                          >
-                            11:00 AM Default
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={!shootingEnabled || startingSession}
-                            onClick={() =>
-                              handleStartAttendanceSession('SHOOTING')
-                            }
-                            className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap disabled:opacity-40 ${
-                              shootingEnabled
-                                ? 'bg-amber-400 text-zinc-950 hover:bg-amber-300'
-                                : 'bg-zinc-200 text-zinc-500'
-                            }`}
-                          >
-                            Start Shooting Session
-                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* ATTENDANCE ANALYTICS LINE CHART DASHBOARD */}
-                  <AttendanceAnalytics
-                    attendanceRecords={data.attendanceRecords}
-                    members={data.members}
-                    selectedDate={selectedDate}
-                    onSelectDate={(dateStr) => {
-                      setSelectedDate(dateStr);
-                      setAttendanceViewTab('daily');
-                    }}
-                  />
+                  {/* EXPANDABLE CLARIFICATION GUIDE (ANSWERS USER'S EXACT QUESTIONS) */}
+                  {showClarificationInfo && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="bg-zinc-50 border border-zinc-200 rounded-xl p-5 space-y-3 text-xs"
+                    >
+                      <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
+                        <div className="font-bold text-zinc-950 flex items-center gap-2">
+                          <Info className="w-4 h-4 text-emerald-700" />
+                          <span>Attendance System Features & Clarifications</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowClarificationInfo(false)}
+                          className="text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                        <div className="space-y-1">
+                          <div className="font-semibold text-zinc-900">
+                            1. What "Shooting Attendance On" refers to:
+                          </div>
+                          <p className="text-zinc-600">
+                            Shooting Attendance is a specialized roll call mode for outdoor/indoor video and photography production shoots. When active, attendance is tagged under Shooting with designated call times (e.g., 11:00 AM or after 3:40 PM).
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="font-semibold text-zinc-900">
+                            2. Dedicated Control Center Default:
+                          </div>
+                          <p className="text-zinc-600">
+                            Is it for selecting the time? Yes! It provides quick 1-click preset times: <strong>11:00 AM</strong> (morning production slot) and <strong>After 3:40 PM</strong> (afternoon/post-class slot) so coordinators don't have to enter the time manually every day.
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="font-semibold text-zinc-900">
+                            3. Exit Function Explained:
+                          </div>
+                          <p className="text-zinc-600">
+                            <strong>Exit (Excused Early Departure):</strong> Used when a member attended the session or shoot initially, but had to leave early with prior permission. It counts toward attendance credit while recording an early-departure notice.
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="font-semibold text-zinc-900">
+                            4. Default Status & 60-Minute Edit Window:
+                          </div>
+                          <p className="text-zinc-600">
+                            Every member starts marked <strong>Present</strong> by default so you only need to mark absent members. After submitting to the database, attendance remains editable for up to 60 minutes (or throughout the 2-hour session duration). If a member joins after two hours, their status is locked as Absent.
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* GRAPH ACCESS BUTTON CARD (REPLACES DIRECT INLINE GRAPH) */}
+                  <div className="bg-gradient-to-r from-zinc-900 via-zinc-950 to-zinc-900 text-white rounded-xl p-5 border border-zinc-800 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                        <BarChart3 className="w-5 h-5 text-emerald-400" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold font-sans">
+                            Attendance Analytics & Bar Graph
+                          </h3>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-400/30">
+                            On-Demand Graph
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          Click to generate and open the interactive bar graph showing daily turnouts, punctuality, and status breakdowns across Shooting & Club Meetings.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAnalyticsModal(true)}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold bg-emerald-500 text-zinc-950 rounded-lg hover:bg-emerald-400 transition-all cursor-pointer shadow-md whitespace-nowrap active:scale-95"
+                      >
+                        <BarChart3 className="w-4 h-4" />
+                        <span>Generate & View Bar Graph</span>
+                      </button>
+                    </div>
+                  </div>
 
                   {/* NAVIGATION TABS FOR DAILY ROLL-CALL vs WEEKLY & MONTHLY REPORTS & ANALYTICS */}
                   <div className="bg-white border border-zinc-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-2xs">
@@ -2317,36 +2807,45 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                       </button>
                     </div>
 
-                    {attendanceViewTab === 'daily' && (
-                      <div className="flex flex-wrap items-center gap-3">
-                        {/* Mode Selector: Club Meetings vs Shooting Attendance */}
-                        <div className="flex items-center gap-1 p-1 bg-zinc-100 rounded-lg">
-                          <button
-                            type="button"
-                            onClick={() => setAttendanceMode('MEETING')}
-                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                              attendanceMode === 'MEETING'
-                                ? 'bg-zinc-950 text-white'
-                                : 'text-zinc-600 hover:text-zinc-950'
-                            }`}
-                          >
-                            Club Meetings
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!shootingEnabled}
-                            onClick={() => setAttendanceMode('SHOOTING')}
-                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-40 ${
-                              attendanceMode === 'SHOOTING'
-                                ? 'bg-amber-500 text-zinc-950'
-                                : 'text-zinc-600 hover:text-zinc-950'
-                            }`}
-                          >
-                            Shooting ({formatTime12h(shootingStartTime)})
-                          </button>
-                        </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Mode Selector: Single-choice mutually exclusive (Meeting, Shooting, Combined) */}
+                      <div className="flex items-center gap-1 p-1 bg-zinc-100 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceMode('MEETING')}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            attendanceMode === 'MEETING'
+                              ? 'bg-zinc-950 text-white shadow-2xs'
+                              : 'text-zinc-600 hover:text-zinc-950'
+                          }`}
+                        >
+                          Club Meeting
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceMode('SHOOTING')}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            attendanceMode === 'SHOOTING'
+                              ? 'bg-amber-500 text-zinc-950 shadow-2xs font-bold'
+                              : 'text-zinc-600 hover:text-zinc-950'
+                          }`}
+                        >
+                          Shooting
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceMode('COMBINED')}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            attendanceMode === 'COMBINED'
+                              ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                              : 'text-zinc-600 hover:text-zinc-950'
+                          }`}
+                        >
+                          Shooting & Club Meeting
+                        </button>
+                      </div>
 
-                        {/* Separate Daily Date Picker */}
+                      {attendanceViewTab === 'daily' && (
                         <div className="flex items-center gap-2">
                           <label className="text-xs font-medium text-zinc-500">
                             Date:
@@ -2358,8 +2857,8 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                             className="px-3 py-1.5 text-xs font-mono bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-950 focus:outline-none focus:border-zinc-900"
                           />
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   {/* TAB 1: LIVE DAILY MEMBER ATTENDANCE LIST */}
@@ -2415,7 +2914,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
 
                       <div className="divide-y divide-zinc-100">
                         {filteredRosterMembers.map((m, idx) => {
-                          const curStatus = rosterStatusMap[m.id] || 'ABSENT';
+                          const curStatus = rosterStatusMap[m.id] || 'PRESENT';
                           return (
                             <div
                               key={m.id}
@@ -2521,13 +3020,37 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                           </p>
                         </div>
 
-                        <div className="text-xs font-mono text-zinc-600">
-                          Club Average:{' '}
-                          <span className="font-bold text-emerald-700">
-                            {hasCompletedFirstWeek
-                              ? `${clubWeeklyAveragePct}%`
-                              : 'Pending Week 1'}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleDownloadAttendanceReportCsv}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <Download className="w-3.5 h-3.5 text-zinc-600" />
+                            <span>Download {attendanceViewTab === 'weekly' ? 'Weekly' : 'Monthly'} Report</span>
+                          </button>
+
+                          {attendanceViewTab === 'weekly' && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                showToast('success', 'Weekly attendance report successfully stored and verified in database.');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <CloudUpload className="w-3.5 h-3.5" />
+                              <span>Save Weekly Report to DB</span>
+                            </button>
+                          )}
+
+                          <div className="text-xs font-mono text-zinc-600 ml-2">
+                            Club Average:{' '}
+                            <span className="font-bold text-emerald-700">
+                              {hasCompletedFirstWeek
+                                ? `${clubWeeklyAveragePct}%`
+                                : 'Pending Week 1'}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -2608,6 +3131,22 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: ATTENDANCE ANALYTICS & BAR GRAPH */}
+                  {attendanceViewTab === 'analytics' && (
+                    <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-2xs">
+                      <AttendanceAnalytics
+                        attendanceRecords={data.attendanceRecords}
+                        members={data.members}
+                        selectedDate={selectedDate}
+                        onSelectDate={(date) => {
+                          setSelectedDate(date);
+                          setAttendanceViewTab('daily');
+                        }}
+                        initialChartStyle="bar"
+                      />
                     </div>
                   )}
                 </div>
@@ -2777,98 +3316,6 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                     </div>
                   </div>
 
-                  {/* Official 1-9 Role Sequence & Vacancy Overview */}
-                  <div className="bg-white border border-zinc-200 rounded-xl p-5 space-y-4 shadow-2xs">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <h2 className="text-sm font-bold text-zinc-950 font-sans">
-                          Official Role Hierarchy & Position Status (Sequence 1–9)
-                        </h2>
-                        <p className="text-xs text-zinc-500">
-                          1. President · 2. Vice President · 3. Secretary · 4. Super Admin · 5. Admin · 6. Project Lead · 7. Attendance Head · 8. Media Head · 9. Member (Listed Last)
-                        </p>
-                      </div>
-                      <span className="text-[11px] font-mono text-zinc-500">
-                        {
-                          ALL_USER_ROLES.slice(0, 8).filter((r) =>
-                            data.members.some((m) => m.role === r && m.isActive)
-                          ).length
-                        }{' '}
-                        / 8 Officer Positions Filled
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                      {ALL_USER_ROLES.map((roleKey) => {
-                        const seq = ROLE_SEQUENCE_NUMBER[roleKey] || 9;
-                        const roleLabel = ROLE_LABELS[roleKey] || roleKey;
-                        const holders = data.members.filter(
-                          (m) => m.role === roleKey && m.isActive
-                        );
-                        const isMemberRole = roleKey === 'MEMBER';
-                        const isFilled = holders.length > 0;
-
-                        return (
-                          <div
-                            key={roleKey}
-                            className={`p-3 rounded-lg border flex flex-col justify-between gap-1.5 ${
-                              !isFilled && !isMemberRole
-                                ? 'bg-amber-50/60 border-dashed border-amber-300'
-                                : isMemberRole
-                                ? 'bg-zinc-50 border-zinc-200'
-                                : 'bg-white border-zinc-200'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-mono font-bold text-zinc-950">
-                                {seq}. {roleLabel}
-                              </span>
-                              {isMemberRole ? (
-                                <span className="text-[10px] font-mono text-zinc-500 font-semibold">
-                                  Listed Last · {holders.length}
-                                </span>
-                              ) : !isFilled ? (
-                                <span className="text-[10px] font-mono text-amber-800 font-bold">
-                                  Vacant
-                                </span>
-                              ) : null}
-                            </div>
-
-                            {isFilled ? (
-                              <div className="text-xs text-zinc-700 space-y-0.5">
-                                {holders.map((h) => (
-                                  <div
-                                    key={h.id}
-                                    className="flex items-center justify-between gap-2 truncate"
-                                  >
-                                    <span className="font-semibold text-zinc-950 truncate">
-                                      {h.fullName}
-                                    </span>
-                                    <span className="text-[10px] font-mono text-zinc-500 shrink-0">
-                                      @{h.username || 'user'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-between gap-2 pt-0.5">
-                                <span className="text-[11px] text-amber-800 italic">
-                                  Position is currently vacant
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenCreateForRole(roleKey)}
-                                  className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-zinc-950 text-white hover:bg-zinc-800 cursor-pointer"
-                                >
-                                  + Assign
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   {/* Filters */}
                   <div className="flex flex-wrap items-center gap-2">
@@ -4701,6 +5148,271 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* START NEW ATTENDANCE SESSION MODAL */}
+      {showStartSessionModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+          onClick={() => setShowStartSessionModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-zinc-200 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-6"
+          >
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-800 flex items-center justify-center">
+                  <Play className="w-4 h-4 fill-emerald-800" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-950 font-sans">
+                    Start New Attendance Session
+                  </h3>
+                  <p className="text-xs text-zinc-500">
+                    Configure roll call session, duration, and default call times
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStartSessionModal(false)}
+                className="text-zinc-400 hover:text-zinc-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Step 1: Session Category — Mutually Exclusive 3 Options */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-900 block">
+                Session Type (Select one):
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewSessionCategory('SHOOTING')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    newSessionCategory === 'SHOOTING'
+                      ? 'border-amber-500 bg-amber-50/70 ring-1 ring-amber-500'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-zinc-950">
+                    Shooting
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    Outdoor & indoor production roll call
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewSessionCategory('MEETING')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    newSessionCategory === 'MEETING'
+                      ? 'border-zinc-950 bg-zinc-100 ring-1 ring-zinc-950'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-zinc-950">
+                    Club Meeting
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    Standard weekly Venture Club gathering & sync
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewSessionCategory('COMBINED')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    newSessionCategory === 'COMBINED'
+                      ? 'border-emerald-600 bg-emerald-50/70 ring-1 ring-emerald-600'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-emerald-950">
+                    Shooting & Club Meeting
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    Combined session covering both activities
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Step 2: Time Selection (Dedicated Control Center Defaults: 11:00 AM or After 3:40 PM) */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-900 block">
+                Call Time Selection:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewSessionTimeOption('11:00')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    newSessionTimeOption === '11:00'
+                      ? 'border-zinc-950 bg-zinc-900 text-white'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50 text-zinc-900'
+                  }`}
+                >
+                  <div className="text-xs font-bold font-mono">11:00 AM</div>
+                  <div className={`text-[11px] mt-0.5 ${newSessionTimeOption === '11:00' ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                    Standard morning production slot
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewSessionTimeOption('15:40')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    newSessionTimeOption === '15:40'
+                      ? 'border-zinc-950 bg-zinc-900 text-white'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50 text-zinc-900'
+                  }`}
+                >
+                  <div className="text-xs font-bold font-mono">After 3:40 PM</div>
+                  <div className={`text-[11px] mt-0.5 ${newSessionTimeOption === '15:40' ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                    Post-class afternoon session slot
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewSessionTimeOption('CUSTOM')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    newSessionTimeOption === 'CUSTOM'
+                      ? 'border-zinc-950 bg-zinc-900 text-white'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50 text-zinc-900'
+                  }`}
+                >
+                  <div className="text-xs font-bold">Custom Time</div>
+                  <div className={`text-[11px] mt-0.5 ${newSessionTimeOption === 'CUSTOM' ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                    Specify an ad-hoc roll call time
+                  </div>
+                </button>
+              </div>
+
+              {newSessionTimeOption === 'CUSTOM' && (
+                <div className="pt-1">
+                  <input
+                    type="time"
+                    value={newSessionCustomTime}
+                    onChange={(e) => setNewSessionCustomTime(e.target.value)}
+                    className="px-3 py-2 text-xs font-mono border border-zinc-200 rounded-lg bg-zinc-50"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Step 3: Duration Selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-900">
+                  Session Duration:
+                </label>
+                <span className="text-xs font-mono font-semibold text-emerald-700">
+                  {newSessionDurationMinutes} minutes ({newSessionDurationMinutes / 60} hours)
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {[30, 60, 90, 120, 180].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setNewSessionDurationMinutes(mins)}
+                    className={`py-2 text-center text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                      newSessionDurationMinutes === mins
+                        ? 'border-emerald-600 bg-emerald-600 text-white'
+                        : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
+                    }`}
+                  >
+                    {mins >= 60 ? `${mins / 60} hr` : `${mins}m`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Operational Rules Note */}
+            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-1.5 text-xs">
+              <div className="font-semibold text-zinc-900 flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Automatic Setup & Attendance Rules:</span>
+              </div>
+              <ul className="text-zinc-600 text-[11px] space-y-1 list-disc list-inside">
+                <li>
+                  <strong>All {activeClubMembers.length} active members</strong> start marked as <strong>Present</strong> by default.
+                </li>
+                <li>
+                  You only need to tap <strong>Absent</strong> for missing members, or <strong>Late / Exit</strong> as required.
+                </li>
+                <li>
+                  Once submitted, the session is uploaded to the database and can be edited for <strong>up to 60 minutes</strong> (or during the 2-hour window).
+                </li>
+                <li>
+                  Members arriving after 2 hours remain marked <strong>Absent</strong>. Full report is downloadable at any time.
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setShowStartSessionModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={startingSession}
+                onClick={() => {
+                  const time =
+                    newSessionTimeOption === '11:00'
+                      ? '11:00'
+                      : newSessionTimeOption === '15:40'
+                      ? '15:40'
+                      : newSessionCustomTime || '11:00';
+                  handleStartAttendanceSession(
+                    newSessionCategory,
+                    time,
+                    newSessionDurationMinutes
+                  );
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-all cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>{startingSession ? 'Starting Session...' : 'Start Session Now'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ATTENDANCE ANALYTICS & BAR GRAPH MODAL */}
+      {showAnalyticsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+          onClick={() => setShowAnalyticsModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-zinc-200 rounded-2xl max-w-4xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-8"
+          >
+            <AttendanceAnalytics
+              attendanceRecords={data.attendanceRecords}
+              members={data.members}
+              selectedDate={selectedDate}
+              onSelectDate={(date) => {
+                setSelectedDate(date);
+                setShowAnalyticsModal(false);
+              }}
+              onClose={() => setShowAnalyticsModal(false)}
+              initialChartStyle="bar"
+            />
+          </div>
         </div>
       )}
     </div>

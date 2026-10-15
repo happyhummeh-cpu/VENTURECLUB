@@ -11,6 +11,9 @@ import {
   XCircle,
   Sparkles,
   Download,
+  BarChart3,
+  LineChart,
+  X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { AttendanceRecordItem, MemberDirectoryItem } from '../types.ts';
@@ -20,6 +23,8 @@ export interface AttendanceAnalyticsProps {
   members: MemberDirectoryItem[];
   selectedDate?: string;
   onSelectDate?: (date: string) => void;
+  onClose?: () => void;
+  initialChartStyle?: 'bar' | 'line';
 }
 
 interface DailyDataPoint {
@@ -100,7 +105,10 @@ export const AttendanceAnalytics: React.FC<AttendanceAnalyticsProps> = ({
   members,
   selectedDate,
   onSelectDate,
+  onClose,
+  initialChartStyle = 'bar',
 }) => {
+  const [chartStyle, setChartStyle] = useState<'bar' | 'line'>(initialChartStyle || 'bar');
   const [timeRange, setTimeRange] = useState<TimeRange>('14d');
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>('ALL');
   const [chartMode, setChartMode] = useState<ChartMode>('percentage');
@@ -422,8 +430,36 @@ export const AttendanceAnalytics: React.FC<AttendanceAnalyticsProps> = ({
           </p>
         </div>
 
-        {/* FILTER CONTROLS */}
+        {/* FILTER CONTROLS & CHART STYLE */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Chart Style: Bar Graph vs Line Curve */}
+          <div className="flex items-center gap-1 p-1 bg-zinc-100 rounded-lg">
+            <button
+              type="button"
+              onClick={() => setChartStyle('bar')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                chartStyle === 'bar'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Bar Graph</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartStyle('line')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                chartStyle === 'line'
+                  ? 'bg-zinc-950 text-white shadow-2xs'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+            >
+              <LineChart className="w-3.5 h-3.5" />
+              <span>Line Curve</span>
+            </button>
+          </div>
+
           {/* Metric Mode Toggle */}
           <div className="flex items-center gap-1 p-1 bg-zinc-100 rounded-lg">
             <button
@@ -506,8 +542,19 @@ export const AttendanceAnalytics: React.FC<AttendanceAnalyticsProps> = ({
             title="Download current analytics view as CSV"
           >
             <Download className="w-3.5 h-3.5 text-zinc-600" />
-            <span>Download Attendance Report</span>
+            <span>Download CSV</span>
           </button>
+
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-zinc-400 hover:text-zinc-950 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer ml-1"
+              title="Close Graph"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -763,181 +810,339 @@ export const AttendanceAnalytics: React.FC<AttendanceAnalyticsProps> = ({
                 </g>
               )}
 
-              {/* Hover Vertical Crosshair Line */}
-              {activePointIndex !== null && (
-                <line
-                  x1={getX(activePointIndex)}
-                  y1={padTop}
-                  x2={getX(activePointIndex)}
-                  y2={baselineY}
-                  stroke="#18181b"
-                  strokeOpacity="0.2"
-                  strokeWidth="1.5"
-                  strokeDasharray="3 3"
-                />
-              )}
-
-              {/* MODE 1: PERCENTAGE LINES */}
-              {chartMode === 'percentage' && (
+              {/* ========================================================= */}
+              {/* STYLE A: BAR GRAPH (DEFAULT AS REQUESTED)                 */}
+              {/* ========================================================= */}
+              {chartStyle === 'bar' && (
                 <g>
-                  {/* Area under Turnout % */}
-                  <path
-                    d={buildAreaPath(chartLines.attendanceRatePts, baselineY)}
-                    fill="url(#turnoutAreaGrad)"
-                  />
-                  {/* Area under Punctuality % */}
-                  <path
-                    d={buildAreaPath(chartLines.punctualityRatePts, baselineY)}
-                    fill="url(#punctualityAreaGrad)"
-                  />
-
-                  {/* On-Time Punctuality Line */}
-                  <path
-                    d={buildSmoothPath(chartLines.punctualityRatePts)}
-                    fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-
-                  {/* Total Turnout % Line */}
-                  <path
-                    d={buildSmoothPath(chartLines.attendanceRatePts)}
-                    fill="none"
-                    stroke="#059669"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-
-                  {/* Data Nodes */}
                   {dailySeries.map((d, i) => {
                     const cx = getX(i);
-                    const cyTurnout = getY(d.attendanceRate);
-                    const cyPunctual = getY(d.punctualityRate);
                     const isSelected = selectedDate === d.date;
                     const isHovered = activePointIndex === i;
-
-                    return (
-                      <g key={d.date}>
-                        <circle
-                          cx={cx}
-                          cy={cyPunctual}
-                          r={isHovered ? 4.5 : 3}
-                          fill="#ffffff"
-                          stroke="#f59e0b"
-                          strokeWidth="2"
-                        />
-                        <circle
-                          cx={cx}
-                          cy={cyTurnout}
-                          r={isHovered || isSelected ? 6 : 4}
-                          fill={isSelected ? '#059669' : '#ffffff'}
-                          stroke="#059669"
-                          strokeWidth={isHovered || isSelected ? '3' : '2.5'}
-                        />
-                      </g>
+                    const barWidth = Math.min(
+                      40,
+                      Math.max(16, (plotWidth / Math.max(dailySeries.length, 1)) * 0.65)
                     );
+                    const barLeft = cx - barWidth / 2;
+
+                    if (chartMode === 'percentage') {
+                      const barHeight = Math.max(4, (d.attendanceRate / 100) * plotHeight);
+                      const barY = baselineY - barHeight;
+                      const punctualHeight = Math.max(0, (d.punctualityRate / 100) * plotHeight);
+                      const punctualY = baselineY - punctualHeight;
+
+                      return (
+                        <g key={`bar-${d.date}`} className="transition-all duration-150">
+                          {/* Background Track */}
+                          <rect
+                            x={barLeft}
+                            y={padTop}
+                            width={barWidth}
+                            height={plotHeight}
+                            rx={5}
+                            fill="#f4f4f5"
+                          />
+                          {/* Main Turnout Bar */}
+                          <rect
+                            x={barLeft}
+                            y={barY}
+                            width={barWidth}
+                            height={barHeight}
+                            rx={5}
+                            fill={isSelected ? '#047857' : isHovered ? '#059669' : '#10b981'}
+                            className="transition-colors cursor-pointer"
+                          />
+                          {/* Punctual Inner Indicator */}
+                          {punctualHeight > 0 && (
+                            <rect
+                              x={barLeft + 2}
+                              y={punctualY}
+                              width={Math.max(2, barWidth - 4)}
+                              height={Math.max(2, punctualHeight)}
+                              rx={3}
+                              fill="#f59e0b"
+                              fillOpacity={0.85}
+                            />
+                          )}
+                          {/* Top Percentage Label */}
+                          <text
+                            x={cx}
+                            y={barY - 6}
+                            textAnchor="middle"
+                            className={`text-[10px] font-mono font-bold select-none ${
+                              isHovered || isSelected ? 'fill-emerald-800' : 'fill-zinc-600'
+                            }`}
+                          >
+                            {d.attendanceRate}%
+                          </text>
+                        </g>
+                      );
+                    } else {
+                      // Stacked Count Segments: Present (bottom), Late, Exit, Absent (top)
+                      const maxVal = Math.max(maxYValue, 1);
+                      const presentH = (d.present / maxVal) * plotHeight;
+                      const lateH = (d.late / maxVal) * plotHeight;
+                      const exitH = (d.exit / maxVal) * plotHeight;
+                      const absentH = (d.absent / maxVal) * plotHeight;
+
+                      const presentY = baselineY - presentH;
+                      const lateY = presentY - lateH;
+                      const exitY = lateY - exitH;
+                      const absentY = exitY - absentH;
+
+                      return (
+                        <g key={`bar-counts-${d.date}`}>
+                          {/* Background Track */}
+                          <rect
+                            x={barLeft}
+                            y={padTop}
+                            width={barWidth}
+                            height={plotHeight}
+                            rx={5}
+                            fill="#f4f4f5"
+                          />
+                          {/* Present Segment */}
+                          {presentH > 0 && (
+                            <rect
+                              x={barLeft}
+                              y={presentY}
+                              width={barWidth}
+                              height={presentH}
+                              fill={isHovered ? '#047857' : '#059669'}
+                              rx={lateH === 0 && exitH === 0 && absentH === 0 ? 5 : 2}
+                            />
+                          )}
+                          {/* Late Segment */}
+                          {lateH > 0 && (
+                            <rect
+                              x={barLeft}
+                              y={lateY}
+                              width={barWidth}
+                              height={lateH}
+                              fill="#d97706"
+                              rx={exitH === 0 && absentH === 0 ? 5 : 0}
+                            />
+                          )}
+                          {/* Exit Segment */}
+                          {exitH > 0 && (
+                            <rect
+                              x={barLeft}
+                              y={exitY}
+                              width={barWidth}
+                              height={exitH}
+                              fill="#2563eb"
+                              rx={absentH === 0 ? 5 : 0}
+                            />
+                          )}
+                          {/* Absent Segment */}
+                          {absentH > 0 && (
+                            <rect
+                              x={barLeft}
+                              y={absentY}
+                              width={barWidth}
+                              height={absentH}
+                              fill="#a1a1aa"
+                              rx={5}
+                            />
+                          )}
+                          {/* Value on Top */}
+                          <text
+                            x={cx}
+                            y={Math.min(presentY, lateY, exitY, absentY) - 6}
+                            textAnchor="middle"
+                            className="text-[10px] font-mono font-bold fill-zinc-700 select-none"
+                          >
+                            {d.present + d.late}
+                          </text>
+                        </g>
+                      );
+                    }
                   })}
                 </g>
               )}
 
-              {/* MODE 2: MEMBER HEADCOUNT LINES */}
-              {chartMode === 'counts' && (
-                <g>
-                  {visibleSeries.present && (
-                    <>
-                      <path
-                        d={buildAreaPath(chartLines.presentPts, baselineY)}
-                        fill="url(#turnoutAreaGrad)"
-                      />
-                      <path
-                        d={buildSmoothPath(chartLines.presentPts)}
-                        fill="none"
-                        stroke="#059669"
-                        strokeWidth="2.75"
-                        strokeLinecap="round"
-                      />
-                    </>
-                  )}
-                  {visibleSeries.late && (
-                    <path
-                      d={buildSmoothPath(chartLines.latePts)}
-                      fill="none"
-                      stroke="#d97706"
-                      strokeWidth="2.25"
-                      strokeLinecap="round"
-                    />
-                  )}
-                  {visibleSeries.exit && (
-                    <path
-                      d={buildSmoothPath(chartLines.exitPts)}
-                      fill="none"
-                      stroke="#2563eb"
-                      strokeWidth="2.25"
-                      strokeLinecap="round"
-                    />
-                  )}
-                  {visibleSeries.absent && (
-                    <path
-                      d={buildSmoothPath(chartLines.absentPts)}
-                      fill="none"
-                      stroke="#71717a"
-                      strokeWidth="2"
-                      strokeDasharray="4 3"
-                      strokeLinecap="round"
+              {/* ========================================================= */}
+              {/* STYLE B: SMOOTH CURVE LINE GRAPH                          */}
+              {/* ========================================================= */}
+              {chartStyle === 'line' && (
+                <>
+                  {/* Hover Vertical Crosshair Line */}
+                  {activePointIndex !== null && (
+                    <line
+                      x1={getX(activePointIndex)}
+                      y1={padTop}
+                      x2={getX(activePointIndex)}
+                      y2={baselineY}
+                      stroke="#18181b"
+                      strokeOpacity="0.2"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
                     />
                   )}
 
-                  {/* Data Nodes for Visible Count Series */}
-                  {dailySeries.map((d, i) => {
-                    const cx = getX(i);
-                    const isHovered = activePointIndex === i;
-                    return (
-                      <g key={d.date}>
-                        {visibleSeries.absent && (
-                          <circle
-                            cx={cx}
-                            cy={getY(d.absent)}
-                            r={isHovered ? 4.5 : 3}
-                            fill="#ffffff"
-                            stroke="#71717a"
-                            strokeWidth="2"
+                  {/* MODE 1: PERCENTAGE LINES */}
+                  {chartMode === 'percentage' && (
+                    <g>
+                      {/* Area under Turnout % */}
+                      <path
+                        d={buildAreaPath(chartLines.attendanceRatePts, baselineY)}
+                        fill="url(#turnoutAreaGrad)"
+                      />
+                      {/* Area under Punctuality % */}
+                      <path
+                        d={buildAreaPath(chartLines.punctualityRatePts, baselineY)}
+                        fill="url(#punctualityAreaGrad)"
+                      />
+
+                      {/* On-Time Punctuality Line */}
+                      <path
+                        d={buildSmoothPath(chartLines.punctualityRatePts)}
+                        fill="none"
+                        stroke="#f59e0b"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+
+                      {/* Total Turnout % Line */}
+                      <path
+                        d={buildSmoothPath(chartLines.attendanceRatePts)}
+                        fill="none"
+                        stroke="#059669"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+
+                      {/* Data Nodes */}
+                      {dailySeries.map((d, i) => {
+                        const cx = getX(i);
+                        const cyTurnout = getY(d.attendanceRate);
+                        const cyPunctual = getY(d.punctualityRate);
+                        const isSelected = selectedDate === d.date;
+                        const isHovered = activePointIndex === i;
+
+                        return (
+                          <g key={d.date}>
+                            <circle
+                              cx={cx}
+                              cy={cyPunctual}
+                              r={isHovered ? 4.5 : 3}
+                              fill="#ffffff"
+                              stroke="#f59e0b"
+                              strokeWidth="2"
+                            />
+                            <circle
+                              cx={cx}
+                              cy={cyTurnout}
+                              r={isHovered || isSelected ? 6 : 4}
+                              fill={isSelected ? '#059669' : '#ffffff'}
+                              stroke="#059669"
+                              strokeWidth={isHovered || isSelected ? '3' : '2.5'}
+                            />
+                          </g>
+                        );
+                      })}
+                    </g>
+                  )}
+
+                  {/* MODE 2: MEMBER HEADCOUNT LINES */}
+                  {chartMode === 'counts' && (
+                    <g>
+                      {visibleSeries.present && (
+                        <>
+                          <path
+                            d={buildAreaPath(chartLines.presentPts, baselineY)}
+                            fill="url(#turnoutAreaGrad)"
                           />
-                        )}
-                        {visibleSeries.exit && (
-                          <circle
-                            cx={cx}
-                            cy={getY(d.exit)}
-                            r={isHovered ? 4.5 : 3}
-                            fill="#ffffff"
-                            stroke="#2563eb"
-                            strokeWidth="2"
-                          />
-                        )}
-                        {visibleSeries.late && (
-                          <circle
-                            cx={cx}
-                            cy={getY(d.late)}
-                            r={isHovered ? 4.5 : 3}
-                            fill="#ffffff"
-                            stroke="#d97706"
-                            strokeWidth="2"
-                          />
-                        )}
-                        {visibleSeries.present && (
-                          <circle
-                            cx={cx}
-                            cy={getY(d.present)}
-                            r={isHovered ? 5.5 : 3.5}
-                            fill="#ffffff"
+                          <path
+                            d={buildSmoothPath(chartLines.presentPts)}
+                            fill="none"
                             stroke="#059669"
-                            strokeWidth="2.5"
+                            strokeWidth="2.75"
+                            strokeLinecap="round"
                           />
-                        )}
-                      </g>
-                    );
-                  })}
-                </g>
+                        </>
+                      )}
+                      {visibleSeries.late && (
+                        <path
+                          d={buildSmoothPath(chartLines.latePts)}
+                          fill="none"
+                          stroke="#d97706"
+                          strokeWidth="2.25"
+                          strokeLinecap="round"
+                        />
+                      )}
+                      {visibleSeries.exit && (
+                        <path
+                          d={buildSmoothPath(chartLines.exitPts)}
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth="2.25"
+                          strokeLinecap="round"
+                        />
+                      )}
+                      {visibleSeries.absent && (
+                        <path
+                          d={buildSmoothPath(chartLines.absentPts)}
+                          fill="none"
+                          stroke="#71717a"
+                          strokeWidth="2"
+                          strokeDasharray="4 3"
+                          strokeLinecap="round"
+                        />
+                      )}
+
+                      {/* Data Nodes for Visible Count Series */}
+                      {dailySeries.map((d, i) => {
+                        const cx = getX(i);
+                        const isHovered = activePointIndex === i;
+                        return (
+                          <g key={d.date}>
+                            {visibleSeries.absent && (
+                              <circle
+                                cx={cx}
+                                cy={getY(d.absent)}
+                                r={isHovered ? 4.5 : 3}
+                                fill="#ffffff"
+                                stroke="#71717a"
+                                strokeWidth="2"
+                              />
+                            )}
+                            {visibleSeries.exit && (
+                              <circle
+                                cx={cx}
+                                cy={getY(d.exit)}
+                                r={isHovered ? 4.5 : 3}
+                                fill="#ffffff"
+                                stroke="#2563eb"
+                                strokeWidth="2"
+                              />
+                            )}
+                            {visibleSeries.late && (
+                              <circle
+                                cx={cx}
+                                cy={getY(d.late)}
+                                r={isHovered ? 4.5 : 3}
+                                fill="#ffffff"
+                                stroke="#d97706"
+                                strokeWidth="2"
+                              />
+                            )}
+                            {visibleSeries.present && (
+                              <circle
+                                cx={cx}
+                                cy={getY(d.present)}
+                                r={isHovered ? 5.5 : 3.5}
+                                fill="#ffffff"
+                                stroke="#059669"
+                                strokeWidth="2.5"
+                              />
+                            )}
+                          </g>
+                        );
+                      })}
+                    </g>
+                  )}
+                </>
               )}
 
               {/* X-Axis Date Labels & Interactive Hit Columns */}

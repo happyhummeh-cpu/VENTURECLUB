@@ -68,17 +68,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }
       setError(err.message === 'STATIC_FALLBACK' || err.message?.includes('JSON') || err.message?.includes('Unexpected')
-        ? 'Invalid username or password. (Note: On static deployments, use demo usernames with password venture2026).'
+        ? 'Invalid username or password. Please verify your credentials or sign in with Google.'
         : (err.message || 'Unable to sign in. Please try again.'));
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemoAccount = (u: string, p: string = 'venture2026') => {
-    setIdentifier(u);
-    setPassword(p);
-    setError(null);
   };
 
   return (
@@ -219,78 +213,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <span className="gsi-material-button-contents">Sign in with Google</span>
                 </div>
               </button>
-            </div>
-
-            {/* Quick Role Login Accounts for All 9 Club Roles */}
-            <div className="pt-2 border-t border-zinc-100 text-[11px] text-zinc-500 space-y-1.5">
-              <div className="font-semibold text-zinc-700">
-                Sign-In Credentials by Role (Password: <span className="font-mono">venture2026</span>):
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('arjun')}
-                  className="px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded font-mono cursor-pointer font-semibold transition-colors"
-                >
-                  arjun (Arjun Mehta · Super Admin)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('anandhish')}
-                  className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded font-mono cursor-pointer font-semibold transition-colors"
-                >
-                  anandhish (President)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('ananya')}
-                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded font-mono cursor-pointer transition-colors"
-                >
-                  ananya (Vice President)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('dev')}
-                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded font-mono cursor-pointer transition-colors"
-                >
-                  dev (Secretary)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('maya')}
-                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded font-mono cursor-pointer transition-colors"
-                >
-                  maya (Admin)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('elena')}
-                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded font-mono cursor-pointer transition-colors"
-                >
-                  elena (Project Lead)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('rohan')}
-                  className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded font-mono cursor-pointer font-medium transition-colors"
-                >
-                  rohan (Attendance Head)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('dhruv_venture')}
-                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded font-mono cursor-pointer transition-colors"
-                >
-                  dhruv_venture (Media Head)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoAccount('kabir')}
-                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded font-mono cursor-pointer transition-colors"
-                >
-                  kabir (Member)
-                </button>
-              </div>
             </div>
           </motion.div>
         </motion.div>
