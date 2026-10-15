@@ -1608,9 +1608,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   const lateCount = activeClubMembers.filter(
     (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'LATE'
   ).length;
-  const exitCount = activeClubMembers.filter(
-    (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'EXIT'
-  ).length;
+  const exitCount = 0;
   const absentCount = activeClubMembers.filter(
     (m) => (rosterStatusMap[m.id] || 'PRESENT') === 'ABSENT'
   ).length;
@@ -2968,10 +2966,10 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleToggleRosterItem(m.id, 'EXIT')
+                                    handleToggleRosterItem(m.id, 'LATE')
                                   }
                                   className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all duration-150 cursor-pointer ${
-                                    curStatus === 'EXIT'
+                                    curStatus === 'LATE'
                                       ? 'bg-blue-600 text-white shadow-2xs scale-[1.02]'
                                       : 'bg-zinc-100 text-zinc-600 hover:bg-blue-50 hover:text-blue-700'
                                   }`}
