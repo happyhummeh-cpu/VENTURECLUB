@@ -5524,13 +5524,20 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
 
       {/* ERP SYSTEM DIAGNOSTICS & TELEMETRY MODAL */}
       {showDiagModal && (
-        <div
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
           onClick={() => setShowDiagModal(false)}
         >
-          <div
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-zinc-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-6 relative my-8"
+            className="bg-white border border-zinc-200 rounded-2xl max-w-lg sm:max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-5 sm:space-y-6 relative my-8"
           >
             <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
               <div className="flex items-center gap-2.5">
@@ -5550,7 +5557,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
                 <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Connection Status</span>
                 <div className="flex items-center gap-2">
@@ -5569,7 +5576,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
 
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Token & Session Telemetry</h4>
-              <div className="p-3 rounded-xl bg-zinc-900 text-zinc-100 font-mono text-xs space-y-1.5">
+              <div className="p-3 rounded-xl bg-zinc-900 text-zinc-100 font-mono text-xs space-y-1.5 overflow-x-auto">
                 <div>User ID: <span className="text-emerald-400">{currentUser.id}</span> ({currentUser.username})</div>
                 <div>Role: <span className="text-amber-400">{currentUser.role}</span></div>
                 <div>Token Type: <span className="text-blue-400">{localStorage.getItem('tvc_session_token') ? 'Custom Session Bearer Token' : 'Firebase / Anonymous'}</span></div>
@@ -5593,11 +5600,11 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-zinc-100">
               <button
                 type="button"
                 onClick={runDiagPing}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Re-run Connection Ping</span>
@@ -5610,8 +5617,8 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                 Close Diagnostics
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </div>
   );

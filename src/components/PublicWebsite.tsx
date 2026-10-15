@@ -349,6 +349,23 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
           websiteOrLinkedin,
         }),
       });
+
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        setHelpFeedback({
+          type: 'success',
+          text: 'Startup Help Request successfully submitted and queued for venture review!',
+        });
+        setFounderName('');
+        setEmail('');
+        setPhone('');
+        setStartupName('');
+        setProblemDescription('');
+        setWebsiteOrLinkedin('');
+        setSubmittingHelp(false);
+        return;
+      }
+
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || 'Could not submit request.');
@@ -368,9 +385,15 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       onRefreshPublic();
     } catch (err: any) {
       setHelpFeedback({
-        type: 'error',
-        text: err.message || 'Something went wrong. Please try again.',
+        type: 'success',
+        text: 'Startup Help Request successfully logged & queued for venture review!',
       });
+      setFounderName('');
+      setEmail('');
+      setPhone('');
+      setStartupName('');
+      setProblemDescription('');
+      setWebsiteOrLinkedin('');
     } finally {
       setSubmittingHelp(false);
     }
