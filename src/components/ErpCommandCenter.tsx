@@ -44,6 +44,7 @@ import {
   ChevronRight,
   AlertTriangle,
   SlidersHorizontal,
+  Activity,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TvcLogo } from './TvcLogo.tsx';
@@ -235,6 +236,101 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     data.shootingSettings?.durationMinutes || 120
   );
   const [updatingShooting, setUpdatingShooting] = useState(false);
+
+  // Real-time Diagnostic Telemetry State
+  const [diagStatus, setDiagStatus] = useState<'checking' | 'connected' | 'fallback' | 'error'>('checking');
+  const [diagLatencyMs, setDiagLatencyMs] = useState<number | null>(null);
+  const [diagRejections, setDiagRejections] = useState<string[]>([]);
+  const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
+
+  // Run live connection test and latency check
+  const runDiagPing = async () => {
+    const start = performance.now();
+    setDiagStatus('checking');
+    try {
+      const res = await apiFetch('/api/health');
+      const end = performance.now();
+      const latency = Math.round(end - start);
+      setDiagLatencyMs(latency);
+      setDiagStatus('connected');
+    } catch (err: any) {
+      const end = performance.now();
+      const latency = Math.round(end - start);
+      setDiagLatencyMs(latency);
+      setDiagStatus('fallback');
+      setDiagRejections((prev) => [
+        `[${new Date().toLocaleTimeString()}] Health Check / Bootstrap Ping Error: ${err.message}`,
+        ...prev.slice(0, 9),
+      ]);
+    }
+  };
+
+  useEffect(() => {
+    runDiagPing();
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      setDiagRejections((prev) => [
+        `[${new Date().toLocaleTimeString()}] Unhandled Rejection: ${event.reason?.message || event.reason || 'Unknown'}`,
+        ...prev.slice(0, 9),
+      ]);
+    };
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+  }, []);
+
+  // Diagnostic utility for authentication & data bootstrap lifecycle tracking
+  useEffect(() => {
+    const diagStart = performance.now();
+    console.group('%c[TVC ERP Diagnostic Utility] Initializing Lifecycle & Token Validation', 'background: #09090b; color: #10b981; padding: 4px 8px; border-radius: 4px; font-weight: bold;');
+    
+    const token = localStorage.getItem('tvc_session_token');
+    const userJson = localStorage.getItem('tvc_session_user');
+    const bootstrapCache = sessionStorage.getItem('tvc_erp_bootstrap_cache');
+    
+    console.log('%c[Auth State]', 'color: #3b82f6; font-weight: bold;', {
+      hasCustomToken: Boolean(token),
+      tokenPrefix: token ? token.substring(0, 15) + '...' : 'none',
+      isGoogleAuth: isGoogleAuthenticated,
+      customSessionActive: customSessionActive,
+      storedUser: userJson ? JSON.parse(userJson) : null,
+    });
+
+    console.log('%c[Bootstrap Payload Summary]', 'color: #8b5cf6; font-weight: bold;', {
+      currentUser: currentUser ? { id: currentUser.id, username: currentUser.username, role: currentUser.role } : 'Missing',
+      totalMembers: data.members?.length || 0,
+      totalEvents: data.events?.length || 0,
+      totalAttendanceSessions: data.attendanceSessions?.length || 0,
+      totalProjects: data.projects?.length || 0,
+      hasBootstrapCache: Boolean(bootstrapCache),
+    });
+
+    // Test API response latency
+    const testLatency = async () => {
+      const pingStart = performance.now();
+      try {
+        const res = await apiFetch('/api/health');
+        const pingEnd = performance.now();
+        console.log('%c[API Health & Latency Test SUCCESS]', 'color: #10b981; font-weight: bold;', {
+          endpoint: '/api/health',
+          status: res.status || 'ok',
+          latencyMs: Math.round(pingEnd - pingStart),
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        const pingEnd = performance.now();
+        console.warn('%c[API Health & Latency Test STATIC FALLBACK / ERROR]', 'color: #f59e0b; font-weight: bold;', {
+          endpoint: '/api/health',
+          latencyMs: Math.round(pingEnd - pingStart),
+          error: err.message,
+          note: 'Running in static client fallback mode (Vercel static deployment or offline).',
+        });
+      }
+    };
+    testLatency();
+
+    const diagEnd = performance.now();
+    console.log(`%c[Diagnostic Initialization Complete] Total Latency: ${Math.round(diagEnd - diagStart)}ms`, 'color: #10b981; font-style: italic;');
+    console.groupEnd();
+  }, [currentUser, data, isGoogleAuthenticated, customSessionActive, apiFetch]);
 
   useEffect(() => {
     if (data.shootingSettings) {
@@ -1945,6 +2041,18 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                 {ROLE_LABELS[currentUser.role] || currentUser.role}
               </span>
             </div>
+
+            {/* Live Diagnostic Telemetry Status Button */}
+            <button
+              onClick={() => setShowDiagModal(true)}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-xs font-mono text-zinc-700 cursor-pointer transition-colors shadow-xs"
+              title="Click to view full ERP connection and telemetry diagnostics"
+            >
+              <span className={`w-2 h-2 rounded-full ${diagStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : diagStatus === 'fallback' ? 'bg-amber-500' : 'bg-zinc-400'}`} />
+              <span className="hidden md:inline">
+                {diagStatus === 'connected' ? `Connected (${diagLatencyMs !== null ? `${diagLatencyMs}ms` : '0ms'})` : diagStatus === 'fallback' ? 'Static Fallback' : 'Checking...'}
+              </span>
+            </button>
 
             {/* Notification Center */}
             <div className="relative">
@@ -5410,6 +5518,98 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
               onClose={() => setShowAnalyticsModal(false)}
               initialChartStyle="bar"
             />
+          </div>
+        </div>
+      )}
+
+      {/* ERP SYSTEM DIAGNOSTICS & TELEMETRY MODAL */}
+      {showDiagModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+          onClick={() => setShowDiagModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-zinc-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-6 relative my-8"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-zinc-900 text-white">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-950">ERP Connection & Telemetry Diagnostics</h3>
+                  <p className="text-xs text-zinc-500">Real-time status, token validation, latency, and promise rejection logs.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDiagModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+                <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Connection Status</span>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${diagStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : diagStatus === 'fallback' ? 'bg-amber-500' : 'bg-zinc-400'}`} />
+                  <span className="text-sm font-bold capitalize text-zinc-950">{diagStatus === 'fallback' ? 'Static Fallback Mode' : diagStatus}</span>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+                <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">API Response Latency</span>
+                <div className="text-sm font-mono font-bold text-zinc-950">
+                  {diagLatencyMs !== null ? `${diagLatencyMs} ms` : 'Measuring...'}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Token & Session Telemetry</h4>
+              <div className="p-3 rounded-xl bg-zinc-900 text-zinc-100 font-mono text-xs space-y-1.5">
+                <div>User ID: <span className="text-emerald-400">{currentUser.id}</span> ({currentUser.username})</div>
+                <div>Role: <span className="text-amber-400">{currentUser.role}</span></div>
+                <div>Token Type: <span className="text-blue-400">{localStorage.getItem('tvc_session_token') ? 'Custom Session Bearer Token' : 'Firebase / Anonymous'}</span></div>
+                <div>Bootstrap Cache: <span className="text-purple-400">{sessionStorage.getItem('tvc_erp_bootstrap_cache') ? 'Active (SessionStorage)' : 'None'}</span></div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Captured Errors & Promise Rejections</h4>
+                <span className="text-[11px] font-mono text-zinc-400">{diagRejections.length} logged</span>
+              </div>
+              <div className="max-h-40 overflow-y-auto p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-mono text-red-800 space-y-1">
+                {diagRejections.length === 0 ? (
+                  <div className="text-emerald-700 italic">No promise rejections or errors captured. System healthy!</div>
+                ) : (
+                  diagRejections.map((rej, idx) => (
+                    <div key={idx} className="break-all border-b border-red-200/50 pb-1">{rej}</div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={runDiagPing}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Re-run Connection Ping</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDiagModal(false)}
+                className="px-5 py-2 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer shadow-md"
+              >
+                Close Diagnostics
+              </button>
+            </div>
           </div>
         </div>
       )}
