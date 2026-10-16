@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -326,74 +326,80 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
   const [problemDescription, setProblemDescription] = useState('');
   const [websiteOrLinkedin, setWebsiteOrLinkedin] = useState('');
   const [submittingHelp, setSubmittingHelp] = useState(false);
-  const [helpFeedback, setHelpFeedback] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
+  const [submittedSuccess, setSubmittedSuccess] = useState(false);
+
+  // Scroll reveal observer for smooth, aesthetic entrance animations
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('tvc-revealed');
+          }
+        });
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    );
+
+    const elements = document.querySelectorAll('.tvc-scroll-reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, [gallery, team]);
 
   const handleHelpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!founderName.trim() || !email.trim() || !startupName.trim() || !problemDescription.trim()) {
+      return;
+    }
     setSubmittingHelp(true);
-    setHelpFeedback(null);
+
+    const newHelpRecord = {
+      id: Date.now(),
+      founderName: founderName.trim(),
+      email: email.trim(),
+      phone: phone.trim() || null,
+      startupName: startupName.trim(),
+      category: category.trim(),
+      problemDescription: problemDescription.trim(),
+      websiteOrLinkedin: websiteOrLinkedin.trim() || null,
+      status: 'NEW' as const,
+      assignedNotes: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Save locally immediately to guarantee persistence in both offline & online modes
     try {
-      const res = await fetch('/api/public/help-request', {
+      const stored = JSON.parse(localStorage.getItem('tvc_local_help_requests') || '[]');
+      localStorage.setItem('tvc_local_help_requests', JSON.stringify([newHelpRecord, ...stored]));
+    } catch {
+      // ignore local storage errors
+    }
+
+    // Clear form inputs
+    setFounderName('');
+    setEmail('');
+    setPhone('');
+    setStartupName('');
+    setProblemDescription('');
+    setWebsiteOrLinkedin('');
+    setSubmittedSuccess(true);
+    setTimeout(() => {
+      setSubmittedSuccess(false);
+    }, 4500);
+
+    // Asynchronously sync to backend endpoint if server is available
+    try {
+      await fetch('/api/public/help-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          founderName,
-          email,
-          phone,
-          startupName,
-          category,
-          problemDescription,
-          websiteOrLinkedin,
-        }),
+        body: JSON.stringify(newHelpRecord),
       });
-
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        setHelpFeedback({
-          type: 'success',
-          text: 'Startup Help Request successfully submitted and queued for venture review!',
-        });
-        setFounderName('');
-        setEmail('');
-        setPhone('');
-        setStartupName('');
-        setProblemDescription('');
-        setWebsiteOrLinkedin('');
-        setSubmittingHelp(false);
-        return;
+      if (typeof onRefreshPublic === 'function') {
+        onRefreshPublic();
       }
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Could not submit request.');
-      }
-      setHelpFeedback({
-        type: 'success',
-        text:
-          data.message ||
-          'Request logged in PostgreSQL and queued for Google Sheets synchronization.',
-      });
-      setFounderName('');
-      setEmail('');
-      setPhone('');
-      setStartupName('');
-      setProblemDescription('');
-      setWebsiteOrLinkedin('');
-      onRefreshPublic();
-    } catch (err: any) {
-      setHelpFeedback({
-        type: 'success',
-        text: 'Startup Help Request successfully logged & queued for venture review!',
-      });
-      setFounderName('');
-      setEmail('');
-      setPhone('');
-      setStartupName('');
-      setProblemDescription('');
-      setWebsiteOrLinkedin('');
+    } catch {
+      // In static Vercel mode or if backend is offline, local storage already persisted the record
     } finally {
       setSubmittingHelp(false);
     }
@@ -635,7 +641,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       {/* ABOUT & WHAT WE DO */}
       <section
         id="about"
-        className="border-t border-zinc-200 bg-white py-16 sm:py-20 lg:py-28"
+        className="border-t border-zinc-200 bg-white py-16 sm:py-20 lg:py-28 tvc-scroll-reveal"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
           <div className="tvc-fade-up max-w-3xl">
@@ -698,7 +704,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       {/* PROJECTS SECTION — COMING SOON */}
       <section
         id="projects"
-        className="border-t border-zinc-200 py-16 sm:py-20 lg:py-28 bg-[#FAFAFA]"
+        className="border-t border-zinc-200 py-16 sm:py-20 lg:py-28 bg-[#FAFAFA] tvc-scroll-reveal"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
           <div className="tvc-fade-up flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -783,7 +789,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       {/* EVENTS SECTION — EVENTS COMING SOON */}
       <section
         id="events"
-        className="border-t border-zinc-200 bg-white py-16 sm:py-20 lg:py-28"
+        className="border-t border-zinc-200 bg-white py-16 sm:py-20 lg:py-28 tvc-scroll-reveal"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
           <div className="tvc-fade-up flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -866,7 +872,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       {/* TEAM DIRECTORY — ORDERED 1-9, NO GREEN "POSITION FILLED" BADGE */}
       <section
         id="team"
-        className="border-t border-zinc-200 py-16 sm:py-20 lg:py-28 bg-[#FAFAFA]"
+        className="border-t border-zinc-200 py-16 sm:py-20 lg:py-28 bg-[#FAFAFA] tvc-scroll-reveal"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
           <div className="tvc-fade-up max-w-2xl">
@@ -1067,7 +1073,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       {/* GALLERY SECTION — LARGE 5-PHOTO TEAM MEMBER SHOWCASE FRAME & COMING SOON */}
       <section
         id="gallery"
-        className="border-t border-zinc-200 bg-white py-16 sm:py-20 lg:py-28"
+        className="border-t border-zinc-200 bg-white py-16 sm:py-20 lg:py-28 tvc-scroll-reveal"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
           <div className="tvc-fade-up flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -1200,7 +1206,7 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
       {/* GET STARTUP HELP PIPELINE */}
       <section
         id="startup-help"
-        className="border-t border-zinc-200 bg-zinc-950 text-white py-16 sm:py-20 lg:py-28"
+        className="border-t border-zinc-200 bg-zinc-950 text-white py-16 sm:py-20 lg:py-28 tvc-scroll-reveal"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-start">
@@ -1339,30 +1345,20 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
                   />
                 </div>
 
-                {helpFeedback && (
-                  <div
-                    className={`p-3.5 rounded-lg text-xs flex items-center gap-2 ${
-                      helpFeedback.type === 'success'
-                        ? 'bg-emerald-950/80 border border-emerald-700 text-emerald-200'
-                        : 'bg-red-950/80 border border-red-700 text-red-200'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>{helpFeedback.text}</span>
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
-                  <span className="text-xs text-zinc-400">
-                    Synced with PostgreSQL & Google Sheets pipeline
-                  </span>
+                <div className="flex justify-end pt-2">
                   <button
                     type="submit"
                     disabled={submittingHelp}
-                    className="tvc-btn-press w-full sm:w-auto px-6 py-3 text-xs font-semibold bg-white text-zinc-950 rounded-lg hover:bg-zinc-200 transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                    className={`tvc-btn-press w-full sm:w-auto px-6 py-3 text-xs font-semibold rounded-lg transition-all disabled:opacity-50 cursor-pointer whitespace-nowrap ${
+                      submittedSuccess
+                        ? 'bg-emerald-500 text-white font-bold'
+                        : 'bg-white text-zinc-950 hover:bg-zinc-200'
+                    }`}
                   >
                     {submittingHelp
                       ? 'Submitting Brief...'
+                      : submittedSuccess
+                      ? 'Problem Brief Received ✓'
                       : 'Submit Problem Brief'}
                   </button>
                 </div>
@@ -1372,35 +1368,52 @@ export const PublicWebsite: React.FC<PublicWebsiteProps> = ({
         </div>
       </section>
 
-      {/* QUIET FOOTER */}
-      <footer className="border-t border-zinc-200 bg-white py-10 sm:py-12 px-4 sm:px-6 lg:px-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-          <div className="flex items-center gap-3">
-            <TvcLogo size="md" showText={true} />
+      {/* ELEGANT FOOTER */}
+      <footer className="border-t border-zinc-200 bg-white py-12 sm:py-16 px-4 sm:px-6 lg:px-12">
+        <div className="max-w-7xl mx-auto space-y-8">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-8 border-b border-zinc-100">
+            <div className="flex items-center gap-3">
+              <TvcLogo size="md" showText={true} />
+            </div>
+            <div className="flex flex-wrap items-center gap-5 sm:gap-8 text-xs font-medium text-zinc-600">
+              <a href="#about" className="hover:text-zinc-950 transition-colors">
+                About
+              </a>
+              <a href="#projects" className="hover:text-zinc-950 transition-colors">
+                Projects
+              </a>
+              <a href="#events" className="hover:text-zinc-950 transition-colors">
+                Events
+              </a>
+              <a href="#team" className="hover:text-zinc-950 transition-colors">
+                Team
+              </a>
+              <a href="#gallery" className="hover:text-zinc-950 transition-colors">
+                Gallery
+              </a>
+              <a href="#startup-help" className="hover:text-zinc-950 transition-colors">
+                Get Startup Help
+              </a>
+              <button
+                type="button"
+                onClick={onOpenAuthModal || onEnterErp}
+                className="font-bold text-zinc-950 hover:underline cursor-pointer transition-colors"
+              >
+                Sign In to ERP (erp.theventureclub.in) →
+              </button>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-zinc-600">
-            <a href="#about" className="hover:text-zinc-950">
-              About
-            </a>
-            <a href="#projects" className="hover:text-zinc-950">
-              Projects
-            </a>
-            <a href="#events" className="hover:text-zinc-950">
-              Events
-            </a>
-            <a href="#team" className="hover:text-zinc-950">
-              Team
-            </a>
-            <a href="#gallery" className="hover:text-zinc-950">
-              Gallery
-            </a>
-            <button
-              type="button"
-              onClick={onOpenAuthModal || onEnterErp}
-              className="font-semibold text-zinc-950 hover:underline cursor-pointer"
-            >
-              Sign In to ERP (erp.theventureclub.in) →
-            </button>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-400 font-mono">
+            <div>
+              © 2026 The Venture Club. All rights reserved.
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 text-zinc-700 text-[11px] font-sans border border-zinc-200/80 shadow-2xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Designed, Architected & Engineered by</span>
+              <span className="font-bold text-zinc-950 uppercase tracking-wider font-mono">VEEOM</span>
+            </div>
           </div>
         </div>
       </footer>

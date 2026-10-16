@@ -7,6 +7,10 @@
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #fafafa;
@@ -23,6 +27,22 @@
   .font-mono, .tabular-nums {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Custom Aesthetic Sleek Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(161, 161, 170, 0.4);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(113, 113, 122, 0.7);
   }
 }
 
@@ -79,10 +99,11 @@
   min-width: 18px;
 }
 
+/* Aesthetic Keyframe Animations */
 @keyframes tvcFadeUp {
   0% {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(24px);
   }
   100% {
     opacity: 1;
@@ -93,7 +114,7 @@
 @keyframes tvcScaleIn {
   0% {
     opacity: 0;
-    transform: scale(0.97) translateY(14px);
+    transform: scale(0.96) translateY(14px);
   }
   100% {
     opacity: 1;
@@ -106,45 +127,81 @@
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-4px);
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes tvcGlowPulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
   }
 }
 
 .tvc-fade-up {
-  animation: tvcFadeUp 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: tvcFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .tvc-scale-in {
-  animation: tvcScaleIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: tvcScaleIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.tvc-float {
+  animation: tvcFloatSlow 4s ease-in-out infinite;
+}
+
+.tvc-glow {
+  animation: tvcGlowPulse 3s ease-in-out infinite;
+}
+
+/* Scroll Reveal Animations */
+.tvc-scroll-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.tvc-scroll-reveal.tvc-revealed {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .tvc-delay-1 {
   animation-delay: 80ms;
+  transition-delay: 80ms;
 }
 
 .tvc-delay-2 {
   animation-delay: 160ms;
+  transition-delay: 160ms;
 }
 
 .tvc-delay-3 {
   animation-delay: 240ms;
+  transition-delay: 240ms;
 }
 
 .tvc-delay-4 {
   animation-delay: 320ms;
+  transition-delay: 320ms;
 }
 
 .tvc-card-hover {
-  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
 }
 
 .tvc-card-hover:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 16px 32px -12px rgba(9, 9, 11, 0.1);
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px -15px rgba(9, 9, 11, 0.12);
 }
 
 .tvc-btn-press {
-  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .tvc-btn-press:hover {

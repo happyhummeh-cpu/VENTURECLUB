@@ -350,9 +350,23 @@ export default function App() {
         sessionsCount: payload.attendanceSessions?.length || 0,
         projectsCount: payload.projects?.length || 0,
       });
-      setErpData(payload);
+      const localReqs = (() => {
+        try {
+          return JSON.parse(localStorage.getItem('tvc_local_help_requests') || '[]');
+        } catch {
+          return [];
+        }
+      })();
+      const mergedPayload = {
+        ...payload,
+        helpRequests: [
+          ...localReqs,
+          ...(payload.helpRequests || []),
+        ],
+      };
+      setErpData(mergedPayload);
       try {
-        sessionStorage.setItem('tvc_erp_bootstrap_cache', JSON.stringify(payload));
+        sessionStorage.setItem('tvc_erp_bootstrap_cache', JSON.stringify(mergedPayload));
       } catch {
         // ignore storage quota errors
       }
@@ -460,9 +474,55 @@ export default function App() {
             recentUpdates: 'Completed mobile responsive fixes and attendance default present workflow.',
           }
         ],
-        projectMembers: [],
-        tasks: [],
-        helpRequests: [],
+        helpRequests: (() => {
+          const defaults = [
+            {
+              id: 1,
+              founderName: 'Rohan Verma',
+              email: 'rohan.v@campusflow.io',
+              phone: '+91 98201 44521',
+              startupName: 'CampusFlow AI',
+              category: 'AI & Machine Learning',
+              problemDescription: 'Building an autonomous schedule optimization assistant for college hackathons. Looking for architecture review on vector embeddings latency and Google Calendar API sync.',
+              websiteOrLinkedin: 'https://campusflow.io',
+              status: 'IN_DISCUSSION' as const,
+              assignedNotes: 'Assigned to Elena Rostova (Project Lead - AI Pod) for architecture teardown.',
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: 2,
+              founderName: 'Pooja Nair',
+              email: 'pooja@medibuddycampus.in',
+              phone: '+91 98112 33490',
+              startupName: 'MediKit Health',
+              category: 'Product Strategy & GTM',
+              problemDescription: 'Need guidance on pricing models and institutional compliance for on-campus student health telemetry kits.',
+              websiteOrLinkedin: 'https://medikithealth.in',
+              status: 'NEW' as const,
+              assignedNotes: null,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: 3,
+              founderName: 'Aditya Sen',
+              email: 'aditya.sen@solardrive.tech',
+              phone: '+91 97412 88201',
+              startupName: 'SolarDrive Pods',
+              category: 'Hardware & IoT Prototyping',
+              problemDescription: 'Designing low-cost BMS (Battery Management System) for electric bicycles. Looking for lab equipment access and mentor feedback.',
+              websiteOrLinkedin: 'https://solardrive.tech',
+              status: 'CONTACTED' as const,
+              assignedNotes: 'Contacted by Anish Anand for workshop session in Block B Lab.',
+              createdAt: new Date().toISOString(),
+            },
+          ];
+          try {
+            const local = JSON.parse(localStorage.getItem('tvc_local_help_requests') || '[]');
+            return [...local, ...defaults];
+          } catch {
+            return defaults;
+          }
+        })(),
         gallery: [],
         notifications: [
           {
@@ -493,7 +553,9 @@ export default function App() {
           durationMinutes: 120,
           updatedByUid: currentUser.uid,
           updatedAt: new Date().toISOString(),
-        }
+        },
+        projectMembers: [],
+        tasks: [],
       };
 
       setErpData(fallbackPayload);

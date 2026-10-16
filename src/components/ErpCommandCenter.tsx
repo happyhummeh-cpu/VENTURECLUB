@@ -45,6 +45,10 @@ import {
   AlertTriangle,
   SlidersHorizontal,
   Activity,
+  Mail,
+  Phone,
+  MessageSquare,
+  Filter,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TvcLogo } from './TvcLogo.tsx';
@@ -60,6 +64,7 @@ import {
   type TaskStatus,
   type TaskPriority,
   type HelpRequestStatus,
+  type StartupHelpRequest,
   type AttendanceStatus,
 } from '../types.ts';
 
@@ -125,7 +130,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
   const isAdminOrAbove = userWeight >= 5 || isSuperAdmin; // SUPER_ADMIN, PRESIDENT, VICE_PRESIDENT, SECRETARY, ADMIN
   const canManageEvents = isAdminOrAbove || currentUser.role === 'MEDIA_HEAD';
-  const canManageHelpDesk = isAdminOrAbove;
+  const canManageHelpDesk = true; // All officers and leads can triage and review founder briefs
   const isLeadOrAbove = userWeight >= 2 || isSuperAdmin;
   const canTakeAttendance =
     isSuperAdmin ||
@@ -154,6 +159,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   // Notification Popover
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileBottomDrawerOpen, setMobileBottomDrawerOpen] = useState(false);
   const unreadNotifications = data.notifications.filter((n) => !n.isRead);
 
   // ===============================================================
@@ -237,45 +243,20 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   );
   const [updatingShooting, setUpdatingShooting] = useState(false);
 
-  // Real-time Diagnostic Telemetry State
-  const [diagStatus, setDiagStatus] = useState<'checking' | 'connected' | 'fallback' | 'error'>('checking');
-  const [diagLatencyMs, setDiagLatencyMs] = useState<number | null>(null);
-  const [diagRejections, setDiagRejections] = useState<string[]>([]);
-  const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
-
-  // Run live connection test and latency check
-  const runDiagPing = async () => {
-    const start = performance.now();
-    setDiagStatus('checking');
-    try {
-      const res = await apiFetch('/api/health');
-      const end = performance.now();
-      const latency = Math.round(end - start);
-      setDiagLatencyMs(latency);
-      setDiagStatus('connected');
-    } catch (err: any) {
-      const end = performance.now();
-      const latency = Math.round(end - start);
-      setDiagLatencyMs(latency);
-      setDiagStatus('fallback');
-      setDiagRejections((prev) => [
-        `[${new Date().toLocaleTimeString()}] Health Check / Bootstrap Ping Error: ${err.message}`,
-        ...prev.slice(0, 9),
-      ]);
-    }
-  };
-
-  useEffect(() => {
-    runDiagPing();
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      setDiagRejections((prev) => [
-        `[${new Date().toLocaleTimeString()}] Unhandled Rejection: ${event.reason?.message || event.reason || 'Unknown'}`,
-        ...prev.slice(0, 9),
-      ]);
-    };
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    return () => window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-  }, []);
+  // Founder Startup Help Pipeline State
+  const [helpStatusFilter, setHelpStatusFilter] = useState<'ALL' | HelpRequestStatus>('ALL');
+  const [helpSearchQuery, setHelpSearchQuery] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [tempNoteText, setTempNoteText] = useState('');
+  const [showAddHelpModal, setShowAddHelpModal] = useState(false);
+  const [newHelpFounder, setNewHelpFounder] = useState('');
+  const [newHelpEmail, setNewHelpEmail] = useState('');
+  const [newHelpPhone, setNewHelpPhone] = useState('');
+  const [newHelpStartup, setNewHelpStartup] = useState('');
+  const [newHelpCategory, setNewHelpCategory] = useState('Product Strategy');
+  const [newHelpProblem, setNewHelpProblem] = useState('');
+  const [newHelpUrl, setNewHelpUrl] = useState('');
+  const [submittingNewHelp, setSubmittingNewHelp] = useState(false);
 
   // Diagnostic utility for authentication & data bootstrap lifecycle tracking
   useEffect(() => {
@@ -1664,16 +1645,131 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
     status: HelpRequestStatus,
     assignedNotes?: string
   ) => {
+    // 1. Optimistic update in data.helpRequests
+    const updated = (data.helpRequests || []).map((req) => {
+      if (req.id === reqId) {
+        return {
+          ...req,
+          status,
+          assignedNotes: assignedNotes !== undefined ? assignedNotes : req.assignedNotes,
+        };
+      }
+      return req;
+    });
+    data.helpRequests = updated;
+
+    // 2. Persist to localStorage for static hosting/offline resilience
+    try {
+      localStorage.setItem('tvc_local_help_requests', JSON.stringify(updated));
+    } catch {}
+
+    showToast('success', `Help request marked ${status}.`);
+
+    // 3. Sync to API backend if available
     try {
       await apiFetch(`/api/erp/help-requests/${reqId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status, assignedNotes }),
       });
-      showToast('success', `Help request marked ${status}.`);
-      await onRefreshErp();
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to update help request.');
+      onRefreshErp();
+    } catch {
+      // In static Vercel mode, local state is already saved
     }
+  };
+
+  const handleSaveTriageNote = async (reqId: number, note: string) => {
+    const target = (data.helpRequests || []).find((r) => r.id === reqId);
+    if (!target) return;
+    const trimmed = note.trim() || null;
+    const updated = (data.helpRequests || []).map((req) => {
+      if (req.id === reqId) {
+        return {
+          ...req,
+          assignedNotes: trimmed,
+        };
+      }
+      return req;
+    });
+    data.helpRequests = updated;
+    try {
+      localStorage.setItem('tvc_local_help_requests', JSON.stringify(updated));
+    } catch {}
+
+    setEditingNoteId(null);
+    showToast('success', 'Triage note and mentor assignment saved.');
+
+    try {
+      await apiFetch(`/api/erp/help-requests/${reqId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: target.status, assignedNotes: trimmed }),
+      });
+      onRefreshErp();
+    } catch {}
+  };
+
+  const handleDeleteHelpRequest = async (reqId: number) => {
+    const updated = (data.helpRequests || []).filter((req) => req.id !== reqId);
+    data.helpRequests = updated;
+    try {
+      localStorage.setItem('tvc_local_help_requests', JSON.stringify(updated));
+    } catch {}
+    showToast('success', 'Problem brief removed from pipeline.');
+    try {
+      await apiFetch(`/api/erp/help-requests/${reqId}`, { method: 'DELETE' });
+      onRefreshErp();
+    } catch {}
+  };
+
+  const handleCreateHelpRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !newHelpFounder.trim() ||
+      !newHelpEmail.trim() ||
+      !newHelpStartup.trim() ||
+      !newHelpProblem.trim()
+    ) {
+      showToast('error', 'Please fill in founder name, email, startup name, and problem.');
+      return;
+    }
+
+    setSubmittingNewHelp(true);
+    const newRecord: StartupHelpRequest = {
+      id: Date.now(),
+      founderName: newHelpFounder.trim(),
+      email: newHelpEmail.trim(),
+      phone: newHelpPhone.trim() || null,
+      startupName: newHelpStartup.trim(),
+      category: newHelpCategory.trim(),
+      problemDescription: newHelpProblem.trim(),
+      websiteOrLinkedin: newHelpUrl.trim() || null,
+      status: 'NEW',
+      assignedNotes: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = [newRecord, ...(data.helpRequests || [])];
+    data.helpRequests = updated;
+    try {
+      localStorage.setItem('tvc_local_help_requests', JSON.stringify(updated));
+    } catch {}
+
+    setShowAddHelpModal(false);
+    setNewHelpFounder('');
+    setNewHelpEmail('');
+    setNewHelpPhone('');
+    setNewHelpStartup('');
+    setNewHelpProblem('');
+    setNewHelpUrl('');
+    setSubmittingNewHelp(false);
+    showToast('success', 'Founder problem brief added to pipeline.');
+
+    try {
+      await apiFetch('/api/public/help-request', {
+        method: 'POST',
+        body: JSON.stringify(newRecord),
+      });
+      onRefreshErp();
+    } catch {}
   };
 
   const handleSaveMyProfile = async (e: React.FormEvent) => {
@@ -1759,7 +1855,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
   ];
 
   return (
-    <div className="min-h-screen bg-[#F7F7F8] text-zinc-900 flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-[#F7F7F8] text-zinc-900 grid grid-cols-1 grid-rows-[auto_1fr_auto] md:flex md:flex-row [grid-template-areas:'header'_'main'_'nav'] md:[grid-template-areas:none]">
       {/* Smooth Toast Notification */}
       <AnimatePresence>
         {toast && (
@@ -1874,6 +1970,10 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
             >
               Profile
             </button>
+          </div>
+
+          <div className="pt-1 text-center text-[10px] text-zinc-400 font-mono tracking-wider">
+            Crafted & Engineered by <span className="font-bold text-zinc-800">VEEOM</span>
           </div>
         </div>
       </aside>
@@ -2004,14 +2104,14 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
       </AnimatePresence>
 
       {/* MAIN CONTENT VIEWPORT */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-h-screen pb-16 lg:pb-0">
+      <div className="[grid-area:main] flex-1 lg:pl-64 flex flex-col min-h-screen pb-24 md:pb-0 overflow-x-hidden min-w-0">
         {/* TOP WORKSPACE HEADER */}
-        <header className="sticky top-0 z-20 h-16 bg-white/90 backdrop-blur-md border-b border-zinc-200 px-4 sm:px-8 flex items-center justify-between gap-4">
+        <header className="[grid-area:header] sticky top-0 z-20 h-16 bg-white/90 backdrop-blur-md border-b border-zinc-200 px-4 sm:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={() => setMobileSidebarOpen(true)}
+              onClick={() => setMobileBottomDrawerOpen(true)}
               className="lg:hidden p-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 cursor-pointer shrink-0"
-              aria-label="Open mobile navigation"
+              aria-label="Open mobile navigation drawer"
             >
               <Menu className="w-4 h-4" />
             </button>
@@ -2041,18 +2141,6 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                 {ROLE_LABELS[currentUser.role] || currentUser.role}
               </span>
             </div>
-
-            {/* Live Diagnostic Telemetry Status Button */}
-            <button
-              onClick={() => setShowDiagModal(true)}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-xs font-mono text-zinc-700 cursor-pointer transition-colors shadow-xs"
-              title="Click to view full ERP connection and telemetry diagnostics"
-            >
-              <span className={`w-2 h-2 rounded-full ${diagStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : diagStatus === 'fallback' ? 'bg-amber-500' : 'bg-zinc-400'}`} />
-              <span className="hidden md:inline">
-                {diagStatus === 'connected' ? `Connected (${diagLatencyMs !== null ? `${diagLatencyMs}ms` : '0ms'})` : diagStatus === 'fallback' ? 'Static Fallback' : 'Checking...'}
-              </span>
-            </button>
 
             {/* Notification Center */}
             <div className="relative">
@@ -2506,9 +2594,9 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                       </button>
 
                       <button
-                        onClick={handleDownloadAttendanceReportCsv}
+                        onClick={() => setShowDownloadModal(true)}
                         className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
-                        title="Download current attendance sheet as CSV"
+                        title="Download attendance sheet with period options (daily, weekly, 2-week, custom)"
                       >
                         <Download className="w-3.5 h-3.5 text-zinc-600" />
                         <span>Download Attendance Sheet</span>
@@ -2578,17 +2666,11 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-bold text-xs uppercase tracking-wider font-mono">
-                              {attendanceMode === 'SHOOTING'
-                                ? 'Shooting Session'
-                                : attendanceMode === 'COMBINED'
-                                ? 'Shooting & Club Meeting'
-                                : 'Club Meeting'}
+                              {dynamicSessionTitle}
                             </span>
                             <span>·</span>
                             <span className="text-xs font-semibold">
-                              {attendanceMode === 'SHOOTING'
-                                ? `Call Time: ${formatTime12h(shootingStartTime)}`
-                                : `Call Time: 11:00 AM`}
+                              {`Call Time: ${dynamicSessionTime}`}
                             </span>
                             {activeSession && (
                               <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-400/30">
@@ -2643,25 +2725,16 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                           </button>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={handleDownloadAttendanceReportCsv}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white text-zinc-950 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <Download className="w-3.5 h-3.5 text-zinc-700" />
-                          <span>Full Sheet</span>
-                        </button>
-
                         {activeSession && (
                           <button
                             type="button"
                             onClick={handleEndAttendanceSession}
                             disabled={endingSession}
                             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors cursor-pointer"
-                            title="Exit or End current live session"
+                            title="End current live session"
                           >
                             <Square className="w-3 h-3" />
-                            <span>Exit Session</span>
+                            <span>End Session</span>
                           </button>
                         )}
                       </div>
@@ -2974,11 +3047,7 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                         <div>
                           <div className="flex items-center gap-2">
                             <h2 className="text-base font-bold text-zinc-950 font-sans">
-                              {attendanceMode === 'SHOOTING'
-                                ? `Shooting Attendance List — ${selectedDate} (${formatTime12h(
-                                    shootingStartTime
-                                  )})`
-                                : `Shooting & Club Meetings Attendance — ${selectedDate}`}
+                              {`${dynamicSessionTitle} — ${selectedDate} (${dynamicSessionTime})`}
                             </h2>
                           </div>
                           <p className="text-xs text-zinc-500 mt-0.5">
@@ -2987,6 +3056,16 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowDownloadModal(true)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-zinc-200 text-zinc-800 rounded-lg hover:bg-zinc-50 transition-colors cursor-pointer shadow-2xs"
+                            title="Download attendance sheet with date range"
+                          >
+                            <Download className="w-3.5 h-3.5 text-zinc-600" />
+                            <span>Download Sheet</span>
+                          </button>
+
                           <div className="relative">
                             <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
                             <input
@@ -3005,10 +3084,6 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                             <span>·</span>
                             <span className="text-amber-700 font-semibold">
                               {lateCount} Late
-                            </span>
-                            <span>·</span>
-                            <span className="text-blue-700 font-semibold">
-                              {exitCount} Exit
                             </span>
                             <span>·</span>
                             <span className="text-zinc-500">
@@ -3043,8 +3118,8 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                                 </div>
                               </div>
 
-                              {/* 4 Manual Status Buttons: Present, Late, Exit, Absent */}
-                              <div className="flex items-center gap-1.5 self-end sm:self-center">
+                              {/* Manual Status Buttons: Present, Late, Absent */}
+                              <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -3070,19 +3145,6 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
                                   }`}
                                 >
                                   Late
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleToggleRosterItem(m.id, 'LATE')
-                                  }
-                                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all duration-150 cursor-pointer ${
-                                    curStatus === 'LATE'
-                                      ? 'bg-blue-600 text-white shadow-2xs scale-[1.02]'
-                                      : 'bg-zinc-100 text-zinc-600 hover:bg-blue-50 hover:text-blue-700'
-                                  }`}
-                                >
-                                  Exit
                                 </button>
                                 <button
                                   type="button"
@@ -4082,75 +4144,532 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
               )}
 
               {/* =============================================================== */}
-              {/* SECTION 7: STARTUP HELP TRIAGE (ADMIN)                          */}
+              {/* SECTION 7: STARTUP HELP TRIAGE PIPELINE                         */}
               {/* =============================================================== */}
-              {activeSection === 'help-requests' && canManageHelpDesk && (
+              {activeSection === 'help-requests' && (
                 <div className="space-y-6">
-                  <div>
-                    <h1 className="text-3xl font-editorial text-zinc-950">
-                      Founder Startup Help Pipeline
-                    </h1>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Triage incoming problem briefs submitted on the public website and assign Venture Club mentors.
-                    </p>
+                  {/* Section Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h1 className="text-3xl font-editorial text-zinc-950">
+                        Founder Startup Help Pipeline
+                      </h1>
+                      <p className="text-xs text-zinc-500 mt-1">
+                        Triage incoming problem briefs submitted on the public website, assign mentors, and track execution statuses.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddHelpModal(true)}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add Problem Brief</span>
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="space-y-4">
-                    {data.helpRequests.map((req) => (
-                      <div
-                        key={req.id}
-                        className="bg-white border border-zinc-200 rounded-xl p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6 shadow-2xs"
-                      >
-                        <div className="space-y-2 max-w-3xl">
-                          <div className="text-xs font-mono text-zinc-500">
-                            {req.startupName} · Category: {req.category} ·
-                            Status:{' '}
-                            <span className="text-zinc-900 font-semibold">
-                              {req.status}
-                            </span>
-                          </div>
-                          <h3 className="text-lg font-bold text-zinc-950 font-sans">
-                            {req.founderName} ({req.email}{' '}
-                            {req.phone ? `· ${req.phone}` : ''})
-                          </h3>
-                          <p className="text-xs text-zinc-700 leading-relaxed">
-                            {req.problemDescription}
-                          </p>
-                          {req.assignedNotes && (
-                            <div className="text-xs text-zinc-500 bg-zinc-50 px-3 py-2 rounded-lg border border-zinc-200/70">
-                              <strong>Triage Note:</strong> {req.assignedNotes}
-                            </div>
-                          )}
-                        </div>
+                  {/* Filter & Search Bar */}
+                  <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-2xs space-y-3">
+                    <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                      {/* Search Input */}
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={helpSearchQuery}
+                          onChange={(e) => setHelpSearchQuery(e.target.value)}
+                          placeholder="Search briefs by startup, founder, category, or problem keyword..."
+                          className="w-full pl-9 pr-3.5 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400 focus:bg-white transition-colors"
+                        />
+                        {helpSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setHelpSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
 
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
-                          {(
-                            [
-                              'NEW',
-                              'CONTACTED',
-                              'IN_DISCUSSION',
-                              'RESOLVED',
-                              'CLOSED',
-                            ] as const
-                          ).map((st) => (
+                      {/* Status Badges Filter */}
+                      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-zinc-100 rounded-lg">
+                        {(
+                          [
+                            { id: 'ALL', label: 'All' },
+                            { id: 'NEW', label: 'New' },
+                            { id: 'CONTACTED', label: 'Contacted' },
+                            { id: 'IN_DISCUSSION', label: 'In Discussion' },
+                            { id: 'RESOLVED', label: 'Resolved' },
+                            { id: 'CLOSED', label: 'Closed' },
+                          ] as const
+                        ).map((tab) => {
+                          const count =
+                            tab.id === 'ALL'
+                              ? (data.helpRequests || []).length
+                              : (data.helpRequests || []).filter((r) => r.status === tab.id).length;
+                          return (
                             <button
-                              key={st}
-                              onClick={() => handleUpdateHelpStatus(req.id, st)}
-                              className={`px-3 py-1.5 text-xs font-mono rounded-lg border transition-colors cursor-pointer ${
-                                req.status === st
-                                  ? 'bg-zinc-950 text-white border-zinc-950'
-                                  : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setHelpStatusFilter(tab.id as any)}
+                              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                                helpStatusFilter === tab.id
+                                  ? 'bg-white text-zinc-950 shadow-2xs font-bold'
+                                  : 'text-zinc-600 hover:text-zinc-950'
                               }`}
                             >
-                              {st}
+                              <span>{tab.label}</span>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                  helpStatusFilter === tab.id
+                                    ? 'bg-zinc-950 text-white'
+                                    : 'bg-zinc-200/80 text-zinc-600'
+                                }`}
+                              >
+                                {count}
+                              </span>
                             </button>
-                          ))}
-                        </div>
+                          );
+                        })}
                       </div>
-                    ))}
+                    </div>
                   </div>
+
+                  {/* Pipeline Cards List */}
+                  {(() => {
+                    const filtered = (data.helpRequests || []).filter((req) => {
+                      if (helpStatusFilter !== 'ALL' && req.status !== helpStatusFilter) return false;
+                      if (!helpSearchQuery.trim()) return true;
+                      const q = helpSearchQuery.toLowerCase();
+                      return (
+                        req.startupName?.toLowerCase().includes(q) ||
+                        req.founderName?.toLowerCase().includes(q) ||
+                        req.email?.toLowerCase().includes(q) ||
+                        req.category?.toLowerCase().includes(q) ||
+                        req.problemDescription?.toLowerCase().includes(q)
+                      );
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="bg-white border border-zinc-200 rounded-2xl p-12 text-center space-y-4 shadow-2xs">
+                          <div className="w-12 h-12 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
+                            <LifeBuoy className="w-6 h-6" />
+                          </div>
+                          <div className="space-y-1">
+                            <h3 className="text-base font-bold text-zinc-900">
+                              No problem briefs found
+                            </h3>
+                            <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                              {helpSearchQuery || helpStatusFilter !== 'ALL'
+                                ? 'No requests match your current filters. Try resetting search or switching status tab.'
+                                : 'Incoming requests submitted on the public website will appear here for mentor assignment.'}
+                            </p>
+                          </div>
+                          {(helpSearchQuery || helpStatusFilter !== 'ALL') ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHelpSearchQuery('');
+                                setHelpStatusFilter('ALL');
+                              }}
+                              className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Reset Filters
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setShowAddHelpModal(true)}
+                              className="px-4 py-2 text-xs font-semibold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
+                            >
+                              Add First Problem Brief
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {filtered.map((req) => {
+                          const statusColors: Record<string, string> = {
+                            NEW: 'bg-amber-100 text-amber-800 border-amber-300',
+                            CONTACTED: 'bg-blue-100 text-blue-800 border-blue-300',
+                            IN_DISCUSSION: 'bg-purple-100 text-purple-800 border-purple-300',
+                            RESOLVED: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                            CLOSED: 'bg-zinc-100 text-zinc-700 border-zinc-300',
+                          };
+
+                          return (
+                            <div
+                              key={req.id}
+                              className="bg-white border border-zinc-200 rounded-xl p-5 sm:p-6 shadow-2xs hover:shadow-xs transition-shadow space-y-4"
+                            >
+                              {/* Top Bar: Startup Name, Category Pill, Status Badge */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-100">
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                  <h3 className="text-lg font-bold text-zinc-950 font-sans tracking-tight">
+                                    {req.startupName}
+                                  </h3>
+                                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-zinc-100 text-zinc-700 border border-zinc-200">
+                                    {req.category}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold font-mono uppercase tracking-wider border ${
+                                      statusColors[req.status] || 'bg-zinc-100 text-zinc-700 border-zinc-200'
+                                    }`}
+                                  >
+                                    {req.status}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  <span>
+                                    {req.createdAt
+                                      ? new Date(req.createdAt).toLocaleDateString('en-US', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          year: 'numeric',
+                                        })
+                                      : 'Recent'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Founder Contact Row */}
+                              <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-600">
+                                <span className="font-semibold text-zinc-950 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-zinc-900" />
+                                  {req.founderName}
+                                </span>
+
+                                <a
+                                  href={`mailto:${req.email}`}
+                                  className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-950 hover:underline"
+                                >
+                                  <Mail className="w-3.5 h-3.5 text-zinc-400" />
+                                  <span>{req.email}</span>
+                                </a>
+
+                                {req.phone && (
+                                  <a
+                                    href={`tel:${req.phone}`}
+                                    className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-950 hover:underline"
+                                  >
+                                    <Phone className="w-3.5 h-3.5 text-zinc-400" />
+                                    <span>{req.phone}</span>
+                                  </a>
+                                )}
+
+                                {req.websiteOrLinkedin && (
+                                  <a
+                                    href={req.websiteOrLinkedin}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-zinc-600 hover:text-zinc-950 hover:underline"
+                                  >
+                                    <ExternalLink className="w-3 h-3 text-zinc-400" />
+                                    <span>Deck / Profile</span>
+                                  </a>
+                                )}
+                              </div>
+
+                              {/* Problem Statement */}
+                              <div className="bg-zinc-50/70 p-3.5 rounded-xl border border-zinc-200/80">
+                                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
+                                  Bottleneck / Problem Description:
+                                </div>
+                                <p className="text-xs text-zinc-800 leading-relaxed whitespace-pre-wrap">
+                                  {req.problemDescription}
+                                </p>
+                              </div>
+
+                              {/* Triage Notes / Mentor Assignment */}
+                              <div className="space-y-2">
+                                {editingNoteId === req.id ? (
+                                  <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-300 space-y-2">
+                                    <label className="block text-[11px] font-semibold text-zinc-700">
+                                      Assign Mentor & Add Triage Note:
+                                    </label>
+                                    <textarea
+                                      rows={2}
+                                      value={tempNoteText}
+                                      onChange={(e) => setTempNoteText(e.target.value)}
+                                      placeholder="e.g. Assigned to Arjun Mehta & Elena Rostova for prototype review on Wednesday..."
+                                      className="w-full p-2.5 text-xs bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingNoteId(null)}
+                                        className="px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-200 rounded-lg cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveTriageNote(req.id, tempNoteText)}
+                                        className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 cursor-pointer"
+                                      >
+                                        Save Note
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : req.assignedNotes ? (
+                                  <div className="flex items-start justify-between gap-3 p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 text-xs">
+                                    <div>
+                                      <span className="font-semibold text-amber-900">
+                                        Assigned Mentor / Triage Note:
+                                      </span>{' '}
+                                      <span className="text-amber-800">{req.assignedNotes}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingNoteId(req.id);
+                                        setTempNoteText(req.assignedNotes || '');
+                                      }}
+                                      className="text-amber-900 font-semibold hover:underline shrink-0 text-[11px] cursor-pointer"
+                                    >
+                                      Edit Note
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingNoteId(req.id);
+                                      setTempNoteText('');
+                                    }}
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-900 cursor-pointer"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Assign Mentor / Add Triage Note</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Triage Status Control Buttons */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-zinc-100">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-[11px] font-semibold text-zinc-400 mr-1">
+                                    Move Status:
+                                  </span>
+                                  {(
+                                    [
+                                      'NEW',
+                                      'CONTACTED',
+                                      'IN_DISCUSSION',
+                                      'RESOLVED',
+                                      'CLOSED',
+                                    ] as const
+                                  ).map((st) => (
+                                    <button
+                                      key={st}
+                                      type="button"
+                                      onClick={() => handleUpdateHelpStatus(req.id, st)}
+                                      className={`px-3 py-1.5 text-xs font-mono rounded-lg border transition-all cursor-pointer ${
+                                        req.status === st
+                                          ? 'bg-zinc-950 text-white border-zinc-950 font-bold shadow-2xs'
+                                          : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300'
+                                      }`}
+                                    >
+                                      {st}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Remove problem brief for "${req.startupName}"?`)) {
+                                      handleDeleteHelpRequest(req.id);
+                                    }
+                                  }}
+                                  className="text-xs text-red-500 hover:text-red-700 hover:underline flex items-center gap-1 self-start sm:self-auto cursor-pointer"
+                                  title="Delete problem brief"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Remove</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
+
+              {/* MODAL: ADD STARTUP HELP BRIEF DIRECTLY */}
+              <AnimatePresence>
+                {showAddHelpModal && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+                    onClick={() => setShowAddHelpModal(false)}
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white border border-zinc-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 relative my-8"
+                    >
+                      <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-xl bg-zinc-950 text-white">
+                            <Plus className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-zinc-950">Add Problem Brief</h3>
+                            <p className="text-xs text-zinc-500">Record a startup advisory request directly into ERP.</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddHelpModal(false)}
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleCreateHelpRequest} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                              Founder Full Name *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={newHelpFounder}
+                              onChange={(e) => setNewHelpFounder(e.target.value)}
+                              placeholder="e.g. Tarun Sharma"
+                              className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                              Email Address *
+                            </label>
+                            <input
+                              type="email"
+                              required
+                              value={newHelpEmail}
+                              onChange={(e) => setNewHelpEmail(e.target.value)}
+                              placeholder="founder@venture.in"
+                              className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                              Startup Name *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={newHelpStartup}
+                              onChange={(e) => setNewHelpStartup(e.target.value)}
+                              placeholder="e.g. NeuroSync"
+                              className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                              Category *
+                            </label>
+                            <select
+                              value={newHelpCategory}
+                              onChange={(e) => setNewHelpCategory(e.target.value)}
+                              className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                            >
+                              <option value="Product Strategy">Product Strategy</option>
+                              <option value="AI & Machine Learning">AI & Machine Learning</option>
+                              <option value="Hardware & IoT">Hardware & IoT</option>
+                              <option value="Fundraising & Pitch">Fundraising & Pitch</option>
+                              <option value="Software Architecture">Software Architecture</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                              Phone (Optional)
+                            </label>
+                            <input
+                              type="tel"
+                              value={newHelpPhone}
+                              onChange={(e) => setNewHelpPhone(e.target.value)}
+                              placeholder="+91 98..."
+                              className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                            Bottleneck / Problem Description *
+                          </label>
+                          <textarea
+                            rows={3}
+                            required
+                            value={newHelpProblem}
+                            onChange={(e) => setNewHelpProblem(e.target.value)}
+                            placeholder="Detail what technical challenge or mentorship question the founder is facing..."
+                            className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                            Pitch Deck or URL (Optional)
+                          </label>
+                          <input
+                            type="url"
+                            value={newHelpUrl}
+                            onChange={(e) => setNewHelpUrl(e.target.value)}
+                            placeholder="https://..."
+                            className="w-full px-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-500"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-100">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddHelpModal(false)}
+                            className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-lg cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={submittingNewHelp}
+                            className="px-5 py-2 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {submittingNewHelp ? 'Adding...' : 'Add to Pipeline'}
+                          </button>
+                        </div>
+                      </form>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* =============================================================== */}
               {/* SECTION 8: ADMIN CONTROL CENTER                                 */}
@@ -5522,104 +6041,361 @@ export const ErpCommandCenter: React.FC<ErpCommandCenterProps> = ({
         </div>
       )}
 
-      {/* ERP SYSTEM DIAGNOSTICS & TELEMETRY MODAL */}
-      {showDiagModal && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
-          onClick={() => setShowDiagModal(false)}
-        >
+
+
+      {/* DOWNLOAD ATTENDANCE SHEET MODAL (DAILY, 1-WEEK, 2-WEEK, CUSTOM) */}
+      <AnimatePresence>
+        {showDownloadModal && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 12 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-zinc-200 rounded-2xl max-w-lg sm:max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-5 sm:space-y-6 relative my-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+            onClick={() => setShowDownloadModal(false)}
           >
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-zinc-900 text-white">
-                  <Activity className="w-5 h-5" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white border border-zinc-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-5 relative my-8"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-zinc-950 text-white">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-950 font-sans">
+                      Download Attendance Sheet
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      Select a date range or duration period to export attendance records.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-zinc-950">ERP Connection & Telemetry Diagnostics</h3>
-                  <p className="text-xs text-zinc-500">Real-time status, token validation, latency, and promise rejection logs.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowDownloadModal(false)}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Range Selection Period */}
+              <div className="space-y-2.5">
+                <label className="text-xs font-bold text-zinc-800 block">
+                  Select Attendance Period
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {[
+                    { id: 'daily', label: 'Daily Attendance', desc: `Date: ${selectedDate}` },
+                    { id: 'one_week', label: 'One-Week Attendance', desc: 'Past 7 days records' },
+                    { id: 'two_week', label: 'Two-Week Attendance', desc: 'Past 14 days records' },
+                    { id: 'custom', label: 'Custom Date Range', desc: 'Choose start & end date' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setDownloadRangeType(opt.id as any)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        downloadRangeType === opt.id
+                          ? 'border-zinc-950 bg-zinc-950 text-white shadow-xs'
+                          : 'border-zinc-200 bg-zinc-50/70 hover:bg-zinc-100 text-zinc-800'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{opt.label}</div>
+                      <div
+                        className={`text-[10px] mt-0.5 ${
+                          downloadRangeType === opt.id ? 'text-zinc-300' : 'text-zinc-500'
+                        }`}
+                      >
+                        {opt.desc}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
-              <button
-                onClick={() => setShowDiagModal(false)}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
-                <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Connection Status</span>
-                <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${diagStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : diagStatus === 'fallback' ? 'bg-amber-500' : 'bg-zinc-400'}`} />
-                  <span className="text-sm font-bold capitalize text-zinc-950">{diagStatus === 'fallback' ? 'Static Fallback Mode' : diagStatus}</span>
+              {/* Custom Date Range Inputs */}
+              {downloadRangeType === 'custom' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-zinc-50 rounded-xl border border-zinc-200">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={downloadStartDate}
+                      onChange={(e) => setDownloadStartDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg text-zinc-950 font-mono focus:outline-none focus:border-zinc-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={downloadEndDate}
+                      onChange={(e) => setDownloadEndDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg text-zinc-950 font-mono focus:outline-none focus:border-zinc-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Session Type Filter */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-800 block">
+                  Session Type Filter
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'ALL', label: 'All' },
+                    { id: 'MEETING', label: 'Meeting' },
+                    { id: 'SHOOTING', label: 'Shooting' },
+                    { id: 'COMBINED', label: 'Combined' },
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setDownloadSessionFilter(s.id as any)}
+                      className={`py-1.5 px-2 text-xs font-semibold rounded-lg border text-center transition-all cursor-pointer ${
+                        downloadSessionFilter === s.id
+                          ? 'border-zinc-900 bg-zinc-900 text-white shadow-2xs'
+                          : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
-                <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">API Response Latency</span>
-                <div className="text-sm font-mono font-bold text-zinc-950">
-                  {diagLatencyMs !== null ? `${diagLatencyMs} ms` : 'Measuring...'}
-                </div>
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setShowDownloadModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteDownloadSheet}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-all cursor-pointer shadow-md"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download CSV Sheet</span>
+                </button>
               </div>
-            </div>
-
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Token & Session Telemetry</h4>
-              <div className="p-3 rounded-xl bg-zinc-900 text-zinc-100 font-mono text-xs space-y-1.5 overflow-x-auto">
-                <div>User ID: <span className="text-emerald-400">{currentUser.id}</span> ({currentUser.username})</div>
-                <div>Role: <span className="text-amber-400">{currentUser.role}</span></div>
-                <div>Token Type: <span className="text-blue-400">{localStorage.getItem('tvc_session_token') ? 'Custom Session Bearer Token' : 'Firebase / Anonymous'}</span></div>
-                <div>Bootstrap Cache: <span className="text-purple-400">{sessionStorage.getItem('tvc_erp_bootstrap_cache') ? 'Active (SessionStorage)' : 'None'}</span></div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Captured Errors & Promise Rejections</h4>
-                <span className="text-[11px] font-mono text-zinc-400">{diagRejections.length} logged</span>
-              </div>
-              <div className="max-h-40 overflow-y-auto p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-mono text-red-800 space-y-1">
-                {diagRejections.length === 0 ? (
-                  <div className="text-emerald-700 italic">No promise rejections or errors captured. System healthy!</div>
-                ) : (
-                  diagRejections.map((rej, idx) => (
-                    <div key={idx} className="break-all border-b border-red-200/50 pb-1">{rej}</div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-zinc-100">
-              <button
-                type="button"
-                onClick={runDiagPing}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Re-run Connection Ping</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowDiagModal(false)}
-                className="px-5 py-2 text-xs font-bold bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer shadow-md"
-              >
-                Close Diagnostics
-              </button>
-            </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
+        )}
+      </AnimatePresence>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR (FIXED ON SCREENS < 768px / md) */}
+      <nav
+        aria-label="Mobile Bottom Navigation"
+        className="[grid-area:nav] md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-zinc-200 px-2 py-1.5 flex items-center justify-around shadow-lg"
+      >
+        <button
+          type="button"
+          onClick={() => onChangeSection('dashboard')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer ${
+            activeSection === 'dashboard'
+              ? 'text-zinc-950 font-bold'
+              : 'text-zinc-500 hover:text-zinc-900'
+          }`}
+        >
+          <LayoutDashboard className="w-5 h-5 mb-0.5" />
+          <span>Dashboard</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChangeSection('attendance')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer ${
+            activeSection === 'attendance'
+              ? 'text-zinc-950 font-bold'
+              : 'text-zinc-500 hover:text-zinc-900'
+          }`}
+        >
+          <UserCheck className="w-5 h-5 mb-0.5" />
+          <span>Attendance</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChangeSection('events')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer ${
+            activeSection === 'events'
+              ? 'text-zinc-950 font-bold'
+              : 'text-zinc-500 hover:text-zinc-900'
+          }`}
+        >
+          <Calendar className="w-5 h-5 mb-0.5" />
+          <span>Events</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onChangeSection('projects')}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer ${
+            activeSection === 'projects'
+              ? 'text-zinc-950 font-bold'
+              : 'text-zinc-500 hover:text-zinc-900'
+          }`}
+        >
+          <FolderKanban className="w-5 h-5 mb-0.5" />
+          <span>Projects</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileBottomDrawerOpen(true)}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer ${
+            mobileBottomDrawerOpen
+              ? 'text-zinc-950 font-bold'
+              : 'text-zinc-500 hover:text-zinc-900'
+          }`}
+        >
+          <Menu className="w-5 h-5 mb-0.5" />
+          <span>More</span>
+        </button>
+      </nav>
+
+      {/* MOBILE BOTTOM NAVIGATION DRAWER (REPLACES SIDEBAR ON SCREENS < 768px) */}
+      <AnimatePresence>
+        {mobileBottomDrawerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs md:hidden flex flex-col justify-end"
+            onClick={() => setMobileBottomDrawerOpen(false)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto p-5 pb-8 shadow-2xl space-y-4 border-t border-zinc-200"
+            >
+              {/* Drag handle indicator */}
+              <div className="w-12 h-1.5 bg-zinc-300 rounded-full mx-auto" />
+
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2.5">
+                  <TvcLogo size="xs" />
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-950">The Venture Club ERP</h3>
+                    <p className="text-[11px] text-zinc-400 font-mono">Navigation & Command Center</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileBottomDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Quick search button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileBottomDrawerOpen(false);
+                  onOpenCommandPalette();
+                }}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs text-zinc-600 bg-zinc-100 hover:bg-zinc-200/70 border border-zinc-200 rounded-xl transition-colors cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Search className="w-4 h-4 text-zinc-400" />
+                  <span>Search commands, members, events...</span>
+                </span>
+                <kbd className="text-[10px] font-mono text-zinc-400 bg-white px-1.5 py-0.5 rounded border border-zinc-200">
+                  ⌘K
+                </kbd>
+              </button>
+
+              {/* Grid of all navigation items */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeSection === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onChangeSection(item.id);
+                        setMobileBottomDrawerOpen(false);
+                      }}
+                      className={`flex items-center gap-2.5 p-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-zinc-950 text-white shadow-xs'
+                          : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-800 border border-zinc-200/80'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Additional controls: Public website, Diagnostics, User profile */}
+              <div className="pt-2 border-t border-zinc-100 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileBottomDrawerOpen(false);
+                      onSwitchToPublic();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Globe className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Switch to Public Website</span>
+                  </button>
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-zinc-950 truncate">
+                      {currentUser.fullName}
+                    </div>
+                    <div className="text-[10px] font-mono text-zinc-500 truncate">
+                      {ROLE_LABELS[currentUser.role] || currentUser.role}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChangeSection('admin');
+                      setAdminSubTab('profile');
+                      setMobileBottomDrawerOpen(false);
+                    }}
+                    className="text-xs font-semibold text-zinc-900 hover:underline cursor-pointer"
+                  >
+                    View Profile
+                  </button>
+                </div>
+
+                <div className="pt-1 text-center text-[10px] text-zinc-400 font-mono tracking-wide">
+                  Architected & Engineered by <span className="font-semibold text-zinc-700">VEEOM</span>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
